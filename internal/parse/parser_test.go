@@ -100,6 +100,16 @@ type District struct {
 
 type M map[string]any
 
+func TestConsecutiveExpr(t *testing.T) {
+	sql := "select &Person&Address from t"
+	expectedComplete := "ParsedExpr[BypassPart[select ] OutputPart[Source: Target:Person] " +
+		"OutputPart[Source: Target:Address] BypassPart[ from t]]"
+	parser := NewParser()
+	parsedExpr, _ := parser.Parse(sql)
+
+	assert.Equal(t, expectedComplete, parsedExpr.String())
+}
+
 func TestRound(t *testing.T) {
 	var tests = []struct {
 		input             string
@@ -446,14 +456,14 @@ func TestUnfinishedStringLiteral(t *testing.T) {
 	sql := "select foo from t where x = 'dddd"
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("parser error: missing right quote in string literal"), err)
 }
 
 func TestUnfinishedStringLiteralV2(t *testing.T) {
 	sql := "select foo from t where x = \"dddd"
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("parser error: missing right quote in string literal"), err)
 }
 
 // We require to end the string literal with the proper quote depending
@@ -462,7 +472,7 @@ func TestUnfinishedStringLiteralV3(t *testing.T) {
 	sql := "select foo from t where x = \"dddd'"
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("parser error: missing right quote in string literal"), err)
 }
 
 // Detect bad input DSL pieces
@@ -470,7 +480,7 @@ func TestBadFormatInput(t *testing.T) {
 	sql := "select foo from t where x = $.id"
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("malformed input type"), err)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
 // Detect bad input DSL pieces
@@ -478,7 +488,7 @@ func TestBadFormatInputV2(t *testing.T) {
 	sql := "select foo from t where x = $Address."
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("malformed input type"), err)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
 // Detect bad output DSL pieces
@@ -486,7 +496,7 @@ func TestBadFormatOutput(t *testing.T) {
 	sql := "select foo as && from t"
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("malformed output expression"), err)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
 // Detect bad output DSL pieces
@@ -494,5 +504,5 @@ func TestBadFormatOutputV2(t *testing.T) {
 	sql := "select foo as &.bar from t"
 	parser := NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("malformed output expression"), err)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
