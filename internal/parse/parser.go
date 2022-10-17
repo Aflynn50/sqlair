@@ -2,16 +2,16 @@ package parse
 
 import (
 	"fmt"
+	"log"
 	"strings"
+	"testing"
 )
 
-// Parser defines the SDL parser.
 type Parser struct {
 	input string
 	pos   int
 }
 
-// NewParser returns a pointer to a Parser.
 func NewParser() *Parser {
 	return &Parser{}
 }
@@ -22,8 +22,8 @@ func (p *Parser) init(input string) {
 	p.pos = 0
 }
 
-// A checkpoint model for restoring the parser to the state it was We only use a
-// checkpoint within an attempted parsing of an part, not at a higher level
+// A checkpoint struct for saving parser state to restore later. We only use
+// a checkpoint within an attempted parsing of an part, not at a higher level
 // since we don't keep track of the parts in the checkpoint.
 type checkpoint struct {
 	parser *Parser
@@ -52,17 +52,7 @@ const (
 	typeId
 )
 
-// advance moves the parser's index forward by one element.
-func (p *Parser) advance() bool {
-	p.skipSpaces()
-	if p.pos == len(p.input) {
-		return false
-	}
-	p.pos++
-	return true
-}
-
-// ParsedExpr is the AST representation of an SDL statement.
+// ParsedExpr is the AST representation of an SQL expression.
 // It has a representation of the original SQL statement in terms of queryParts
 // A SQL statement like this:
 //
@@ -70,7 +60,7 @@ func (p *Parser) advance() bool {
 //
 // would be represented as:
 //
-// [stringPart outputPart stringPart inputPart]
+// [BypassPart OutputPart BypassPart InputPart]
 type ParsedExpr struct {
 	queryParts []queryPart
 }
@@ -89,18 +79,21 @@ func (pe *ParsedExpr) String() string {
 	return out
 }
 
-// A struct for keeping track of the parts parsed so far.
+// parsedExprBuilder keeps track of the parts parsed so far, along with
+// information for parsing the BypassPart between input/output parts.
 type parsedExprBuilder struct {
-	// The position of Parser.pos when we last finished parsing a part.
+	// prevPart is the position of Parser.pos when we last finished parsing a
+	// part.
 	prevPart int
-	// The position of Parser.pos just before we started parsing the last part.
+	// partStart is the position of Parser.pos just before we started parsing
+	// the current part. We maintain partStart >= prevPart.
 	partStart int
 	parts     []queryPart
 }
 
 // add pushes the parsed part to the parsedExprBuilder along with the BypassPart
-// that streaches from the end of the last previously in parts to the beginning
-// of this part.
+// that stretches from the end of the previous part to the beginning of this
+// part.
 func (peb *parsedExprBuilder) add(p *Parser, part queryPart) {
 	// Add the string between the previous I/O part and the current part.
 	if peb.prevPart != peb.partStart {
@@ -114,19 +107,17 @@ func (peb *parsedExprBuilder) add(p *Parser, part queryPart) {
 
 	// Save this position at the end of the part.
 	peb.prevPart = p.pos
-	// Ensure that partStart !< prevPart.
+	// Ensure that partStart >= prevPart.
 	peb.partStart = p.pos
 }
 
-// Parse takes an input string and discovers the input and output parts. It
-// returns a pointer to a ParsedExpr.
+// Parse takes an input string and parses the input and output parts. It returns
+// a pointer to a ParsedExpr.
 func (p *Parser) Parse(input string) (*ParsedExpr, error) {
 	p.init(input)
 	var peb parsedExprBuilder
 
 	for {
-		p.skipSpaces()
-
 		peb.partStart = p.pos
 
 		if op, ok, err := p.parseOutputExpression(); err != nil {
@@ -144,11 +135,14 @@ func (p *Parser) Parse(input string) (*ParsedExpr, error) {
 		} else if ok {
 			peb.add(p, sp)
 
-		} else if !p.advance() {
+		} else if p.pos == len(p.input) {
 			break
+		} else {
+			p.pos++
 		}
 	}
 	// Add any remaining uparsed string input to the parser
+
 	peb.add(p, nil)
 	return &ParsedExpr{peb.parts}, nil
 }
@@ -328,6 +322,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 		if !ok {
 			err = fmt.Errorf("malformed output expression")
 		}
+		p.skipSpaces()
 		return &OutputPart{cols, goType}, true, err
 
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person".
@@ -339,6 +334,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 				if !ok {
 					err = fmt.Errorf("malformed output expression")
 				}
+				p.skipSpaces()
 				return &OutputPart{cols, goType}, true, err
 
 			}
@@ -362,11 +358,11 @@ func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 		if !ok {
 			err = fmt.Errorf("malformed input type")
 		}
-	} else {
-		cp.restore()
-		return nil, false, nil
+		p.skipSpaces()
+		return &InputPart{fn}, true, err
 	}
-	return &InputPart{fn}, true, err
+	cp.restore()
+	return nil, false, nil
 }
 
 // parseInputExpression parses an SDL input go-defined type to be used as a
@@ -391,4 +387,59 @@ func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 
 	cp.restore()
 	return nil, false, err
+}
+
+type parseHelperTest struct {
+	bytef    func(byte) bool
+	stringf  func(string) bool
+	stringf0 func() bool
+	result   []bool
+	input    string
+	data     []string
+}
+
+func TestRunTable(t *testing.T) {
+	var p = NewParser()
+	var parseTests = []parseHelperTest{
+
+		{bytef: p.peekByte, result: []bool{false}, input: "", data: []string{"a"}},
+		{bytef: p.peekByte, result: []bool{false}, input: "b", data: []string{"a"}},
+		{bytef: p.peekByte, result: []bool{true}, input: "a", data: []string{"a"}},
+
+		{bytef: p.skipByte, result: []bool{false}, input: "", data: []string{"a"}},
+		{bytef: p.skipByte, result: []bool{false}, input: "abc", data: []string{"b"}},
+		{bytef: p.skipByte, result: []bool{true, true}, input: "abc", data: []string{"a", "b"}},
+
+		{bytef: p.skipByteFind, result: []bool{false}, input: "", data: []string{"a"}},
+		{bytef: p.skipByteFind, result: []bool{false, true, true}, input: "abcde", data: []string{"x", "b", "c"}},
+		{bytef: p.skipByteFind, result: []bool{true, false}, input: "abcde ", data: []string{" ", " "}},
+
+		{stringf0: p.skipSpaces, result: []bool{false}, input: "", data: []string{}},
+		{stringf0: p.skipSpaces, result: []bool{false}, input: "abc    d", data: []string{}},
+		{stringf0: p.skipSpaces, result: []bool{true}, input: "     abcd", data: []string{}},
+		{stringf0: p.skipSpaces, result: []bool{true}, input: "  \t  abcd", data: []string{}},
+		{stringf0: p.skipSpaces, result: []bool{false}, input: "\t  abcd", data: []string{}},
+
+		{stringf: p.skipString, result: []bool{false}, input: "", data: []string{"a"}},
+		{stringf: p.skipString, result: []bool{true, true}, input: "helloworld", data: []string{"hElLo", "w"}},
+		{stringf: p.skipString, result: []bool{true, true}, input: "hello world", data: []string{"hello", " "}},
+	}
+	for _, v := range parseTests {
+		p.Parse(v.input)
+		for i, _ := range v.result {
+			var result bool
+			if v.bytef != nil {
+				result = v.bytef(v.data[i][0])
+			}
+			if v.stringf != nil {
+				result = v.stringf(v.data[i])
+			}
+			if v.stringf0 != nil {
+				result = v.stringf0()
+			}
+			if v.result[i] != result {
+				log.Printf("Test %#v failed. Expected: '%t', got '%t'\n", v, result, v.result[i])
+			}
+		}
+	}
 }
