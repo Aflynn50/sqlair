@@ -217,7 +217,6 @@ func isNameByte(c byte) bool {
 // the default value in  other return type
 
 func (p *Parser) parseIdentifier() (string, bool) {
-	p.skipSpaces()
 	if p.pos >= len(p.input) {
 		return "", false
 	}
@@ -248,7 +247,6 @@ func (p *Parser) parseIdentifier() (string, bool) {
 func (p *Parser) parseFullName(idc idClass) (FullName, bool) {
 	cp := p.save()
 	var fn FullName
-	p.skipSpaces()
 	if id, ok := p.parseIdentifier(); ok {
 		fn.Prefix = id
 		if p.skipByte('.') {

@@ -446,7 +446,7 @@ func TestBadFormatInputV7(t *testing.T) {
 
 // Detect bad output DSL pieces
 func TestBadFormatOutput(t *testing.T) {
-	sql := "select foo as && from t"
+	sql := "select foo as &.id from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
@@ -454,7 +454,47 @@ func TestBadFormatOutput(t *testing.T) {
 
 // Detect bad output DSL pieces
 func TestBadFormatOutputV2(t *testing.T) {
-	sql := "select foo as &.bar from t"
+	sql := "select foo as &bar. from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
+}
+
+// Detect bad output DSL pieces
+func TestBadFormatOutputV3(t *testing.T) {
+	sql := "select foo as & from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
+}
+
+// Detect bad output DSL pieces
+func TestBadFormatOutputV4(t *testing.T) {
+	sql := "select foo as &&bar from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
+}
+
+// Detect bad output DSL pieces
+func TestBadFormatOutputV5(t *testing.T) {
+	sql := "select foo as &``` from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
+}
+
+// Detect bad output DSL pieces
+func TestBadFormatOutputV6(t *testing.T) {
+	sql := "select foo as &.. from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
+}
+
+// Detect bad output DSL pieces
+func TestBadFormatOutputV7(t *testing.T) {
+	sql := "select foo as &. from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
