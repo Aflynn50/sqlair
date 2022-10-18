@@ -27,16 +27,6 @@ type District struct {
 
 type M map[string]any
 
-func TestConsecutiveExpr(t *testing.T) {
-	sql := "select &Person&Address from t"
-	expectedComplete := "ParsedExpr[BypassPart[select] OutputPart[Source: Target:Person] " +
-		"OutputPart[Source: Target:Address] BypassPart[from t]]"
-	parser := parse.NewParser()
-	parsedExpr, _ := parser.Parse(sql)
-
-	assert.Equal(t, expectedComplete, parsedExpr.String())
-}
-
 func TestRound(t *testing.T) {
 	var tests = []struct {
 		input             string
@@ -382,6 +372,22 @@ func TestUnfinishedStringLiteralV3(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: missing right quote in string literal"), err)
 }
 
+// Properly parsing empty string literal
+func TestEmptyStringLiteral(t *testing.T) {
+	sql := "select foo from t where x = ''"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, nil, err)
+}
+
+// Detect bad escaped string literal
+func TestBadEscaped(t *testing.T) {
+	sql := "select foo from t where x = 'O'Donnell'"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: missing right quote in string literal"), err)
+}
+
 // Detect bad input DSL pieces
 func TestBadFormatInput(t *testing.T) {
 	sql := "select foo from t where x = $.id"
@@ -393,6 +399,46 @@ func TestBadFormatInput(t *testing.T) {
 // Detect bad input DSL pieces
 func TestBadFormatInputV2(t *testing.T) {
 	sql := "select foo from t where x = $Address."
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
+}
+
+// Detect bad input DSL pieces
+func TestBadFormatInputV3(t *testing.T) {
+	sql := "select foo from t where x = $"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
+}
+
+// Detect bad input DSL pieces
+func TestBadFormatInputV4(t *testing.T) {
+	sql := "select foo from t where x = $$Address"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
+}
+
+// Detect bad input DSL pieces
+func TestBadFormatInputV5(t *testing.T) {
+	sql := "select foo from t where x = $```"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
+}
+
+// Detect bad input DSL pieces
+func TestBadFormatInputV6(t *testing.T) {
+	sql := "select foo from t where x = $.."
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
+}
+
+// Detect bad input DSL pieces
+func TestBadFormatInputV7(t *testing.T) {
+	sql := "select foo from t where x = $."
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
