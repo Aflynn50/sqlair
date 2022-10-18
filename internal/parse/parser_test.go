@@ -388,7 +388,7 @@ func TestBadEscaped(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: missing right quote in string literal"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInput(t *testing.T) {
 	sql := "select foo from t where x = $.id"
 	parser := parse.NewParser()
@@ -396,7 +396,7 @@ func TestBadFormatInput(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInputV2(t *testing.T) {
 	sql := "select foo from t where x = $Address."
 	parser := parse.NewParser()
@@ -404,7 +404,7 @@ func TestBadFormatInputV2(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInputV3(t *testing.T) {
 	sql := "select foo from t where x = $"
 	parser := parse.NewParser()
@@ -412,7 +412,7 @@ func TestBadFormatInputV3(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInputV4(t *testing.T) {
 	sql := "select foo from t where x = $$Address"
 	parser := parse.NewParser()
@@ -420,7 +420,7 @@ func TestBadFormatInputV4(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInputV5(t *testing.T) {
 	sql := "select foo from t where x = $```"
 	parser := parse.NewParser()
@@ -428,7 +428,7 @@ func TestBadFormatInputV5(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInputV6(t *testing.T) {
 	sql := "select foo from t where x = $.."
 	parser := parse.NewParser()
@@ -436,7 +436,7 @@ func TestBadFormatInputV6(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad input DSL pieces
+// Detect bad input expressions
 func TestBadFormatInputV7(t *testing.T) {
 	sql := "select foo from t where x = $."
 	parser := parse.NewParser()
@@ -444,7 +444,7 @@ func TestBadFormatInputV7(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed input type"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutput(t *testing.T) {
 	sql := "select foo as &.id from t"
 	parser := parse.NewParser()
@@ -452,7 +452,7 @@ func TestBadFormatOutput(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutputV2(t *testing.T) {
 	sql := "select foo as &bar. from t"
 	parser := parse.NewParser()
@@ -460,7 +460,7 @@ func TestBadFormatOutputV2(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutputV3(t *testing.T) {
 	sql := "select foo as & from t"
 	parser := parse.NewParser()
@@ -468,7 +468,7 @@ func TestBadFormatOutputV3(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutputV4(t *testing.T) {
 	sql := "select foo as &&bar from t"
 	parser := parse.NewParser()
@@ -476,7 +476,7 @@ func TestBadFormatOutputV4(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutputV5(t *testing.T) {
 	sql := "select foo as &``` from t"
 	parser := parse.NewParser()
@@ -484,7 +484,7 @@ func TestBadFormatOutputV5(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutputV6(t *testing.T) {
 	sql := "select foo as &.. from t"
 	parser := parse.NewParser()
@@ -492,7 +492,7 @@ func TestBadFormatOutputV6(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: malformed output expression"), err)
 }
 
-// Detect bad output DSL pieces
+// Detect bad output expressions
 func TestBadFormatOutputV7(t *testing.T) {
 	sql := "select foo as &. from t"
 	parser := parse.NewParser()
