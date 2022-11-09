@@ -68,6 +68,13 @@ const (
 	typeId
 )
 
+type starFlag int
+
+const (
+	allowStar starFlag = iota
+	disallowStar
+)
+
 // ParsedExpr is the AST representation of an SQL expression.
 // It has a representation of the original SQL statement in terms of queryParts
 // A SQL statement like this:
@@ -213,16 +220,17 @@ func isNameByte(c byte) bool {
 }
 
 // These functions attempt to parse some construct, they return a bool and that
-// construct, if they n't parse they return false, restore the parser and leave
-// the default value in  other return type
-
-func (p *Parser) parseIdentifier() (string, bool) {
+// construct, if they can't parse they return false, restore the parser and
+// leave the default value in the other return type
+func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 	if p.pos >= len(p.input) {
 		return "", false
 	}
-	if p.peekByte('*') {
-		p.pos++
-		return "*", true
+	if starF == allowStar {
+		if p.peekByte('*') {
+			p.pos++
+			return "*", true
+		}
 	}
 
 	idStart := p.pos
@@ -239,33 +247,49 @@ func (p *Parser) parseIdentifier() (string, bool) {
 	return p.input[idStart:i], true
 }
 
-// Parses a column name or a Go type name. If parsing a Go type name then
-// struct name is in FullName.Prefix and the field name (if extant) is in
-// FullName.Name.
 // When parsing a column the table name (if extant) is in FullName.Prefix and
-// the column name is in FullName.Name func (p *Parser)
-func (p *Parser) parseFullName(idc idClass) (FullName, bool) {
+// the column name is in FullName.Name.
+func (p *Parser) parseColumn() (FullName, bool) {
 	cp := p.save()
 	var fn FullName
-	if id, ok := p.parseIdentifier(); ok {
+	if id, ok := p.parseIdentifier(allowStar); ok {
 		fn.Prefix = id
 		if p.skipByte('.') {
-			if id, ok := p.parseIdentifier(); ok {
+			if id, ok := p.parseIdentifier(allowStar); ok {
 				fn.Name = id
 				return fn, true
 			}
 		} else {
 			// A column name specified without a table prefix is a name not a
 			// prefix
-			if idc == columnId {
-				fn.Name = fn.Prefix
-				fn.Prefix = ""
-			}
+			fn.Name = fn.Prefix
+			fn.Prefix = ""
 			return fn, true
 		}
 	}
 	cp.restore()
 	return fn, false
+}
+
+// When parsing an object the type name is in FullName.Prefix and the field name
+// is in FullName.Name.
+func (p *Parser) parseGoObject() (FullName, error) {
+	var fn FullName
+	if id, ok := p.parseIdentifier(disallowStar); ok {
+		fn.Prefix = id
+		if p.skipByte('.') {
+			if id, ok := p.parseIdentifier(allowStar); ok {
+				fn.Name = id
+				return fn, nil
+			} else {
+				return fn, fmt.Errorf("not a valid identifier for a go object field")
+			}
+		} else {
+			return fn, fmt.Errorf("go objects need to be qualified")
+		}
+	} else {
+		return fn, fmt.Errorf("not a valid identifier for a go object")
+	}
 }
 
 // parseColumns parses text in the SQL query of the form "table.colname". If
@@ -277,12 +301,12 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 	p.skipSpaces()
 
 	// Case 1: A single column.
-	if col, ok := p.parseFullName(columnId); ok {
+	if col, ok := p.parseColumn(); ok {
 		cols = append(cols, col)
 
 		// Case 2: Multiple columns.
 	} else if p.skipByte('(') {
-		col, ok := p.parseFullName(columnId)
+		col, ok := p.parseColumn()
 		// If the column names are not formated in a recognisable way then give
 		// up trying to parse.
 		if !ok {
@@ -292,7 +316,7 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 		p.skipSpaces()
 		for p.skipByte(',') {
 			p.skipSpaces()
-			col, ok := p.parseFullName(columnId)
+			col, ok := p.parseColumn()
 			if !ok {
 				return cols, false
 			}
@@ -316,28 +340,35 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 	p.skipSpaces()
 
 	if p.skipByte('&') {
-		target, ok := p.parseFullName(typeId)
-		if !ok {
-			return targets, true, fmt.Errorf("malformed output expression")
-		}
-		targets = append(targets, target)
-		p.skipSpaces()
-
-		cp := p.save()
-		for p.skipByte(',') {
+		if p.skipByte('(') {
+			target, err := p.parseGoObject()
+			if err != nil {
+				return targets, true, err
+			}
+			targets = append(targets, target)
 			p.skipSpaces()
-			if p.skipByte('&') {
-				target, ok = p.parseFullName(typeId)
-				if !ok {
-					return targets, true, fmt.Errorf("malformed output expression")
+			for p.skipByte(',') {
+				p.skipSpaces()
+				target, err := p.parseGoObject()
+				if err != nil {
+					return targets, true, err
 				}
 				targets = append(targets, target)
 				p.skipSpaces()
-				cp = p.save()
-			} else {
-				cp.restore()
-				break
 			}
+			if !p.skipByte(')') {
+				return targets, true, fmt.Errorf("expected closing parentheses")
+			}
+			p.skipSpaces()
+		} else {
+			target, err := p.parseGoObject()
+			if err != nil {
+				return targets, true, err
+			}
+
+			targets = append(targets, target)
+			p.skipSpaces()
+
 		}
 		return targets, true, nil
 	}
@@ -348,28 +379,34 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 // from the executed query.
 func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 	cp := p.save()
-	var err error
 	var cols []FullName
 
 	p.skipSpaces()
 
 	if p.skipByte('&') {
 		// Case 1: The expression has only one part e.g. "&Person.*".
-		target, ok := p.parseFullName(typeId)
-		if !ok {
-			err = fmt.Errorf("malformed output expression")
+		target, err := p.parseGoObject()
+		if err != nil {
+			return nil, true, fmt.Errorf("output expression: %s", err)
 		}
 		p.skipSpaces()
-		return &OutputPart{cols, []FullName{target}}, true, err
+		return &OutputPart{cols, []FullName{target}}, true, nil
 
 	} else if cols, ok := p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		if p.skipString("AS") {
 			if targets, ok, err := p.parseTargets(); ok {
 				if err != nil {
-					return nil, true, err
+					return nil, true, fmt.Errorf("output expression: %s", err)
 				}
-				return &OutputPart{cols, targets}, true, err
+				// If the target is not * then check there are equal columns and targets
+				if !(len(targets) == 1 && targets[0].Name == "*") {
+					if len(cols) != len(targets) {
+						return nil, true, fmt.Errorf("output expression: " +
+							"number of cols != number of targets")
+					}
+				}
+				return &OutputPart{cols, targets}, true, nil
 			}
 		}
 	}
@@ -381,18 +418,15 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 // query argument.
 func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 	cp := p.save()
-	var err error
-	var fn FullName
-	var ok bool
 
 	p.skipSpaces()
 	if p.skipByte('$') {
-		fn, ok = p.parseFullName(typeId)
-		if !ok {
-			err = fmt.Errorf("malformed input type")
+		fn, err := p.parseGoObject()
+		if err != nil {
+			return nil, true, fmt.Errorf("input expression: %s", err)
 		}
 		p.skipSpaces()
-		return &InputPart{fn}, true, err
+		return &InputPart{fn}, true, nil
 	}
 	cp.restore()
 	return nil, false, nil
