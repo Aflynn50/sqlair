@@ -383,14 +383,12 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 
 	p.skipSpaces()
 
-	if p.skipByte('&') {
-		// Case 1: The expression has only one part e.g. "&Person.*".
-		target, err := p.parseGoObject()
+	if targets, ok, err := p.parseTargets(); ok {
+		// Case 1: simple case with no columns e.g. &Person.*
 		if err != nil {
 			return nil, true, fmt.Errorf("output expression: %s", err)
 		}
-		p.skipSpaces()
-		return &OutputPart{cols, []FullName{target}}, true, nil
+		return &OutputPart{cols, targets}, true, nil
 
 	} else if cols, ok := p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
