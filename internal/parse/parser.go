@@ -283,20 +283,20 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 		// Case 2: Multiple columns.
 	} else if p.skipByte('(') {
 		col, ok := p.parseFullName(columnId)
-		cols = append(cols, col)
-		p.skipSpaces()
 		// If the column names are not formated in a recognisable way then give
 		// up trying to parse.
 		if !ok {
 			return cols, false
 		}
+		cols = append(cols, col)
+		p.skipSpaces()
 		for p.skipByte(',') {
 			p.skipSpaces()
 			col, ok := p.parseFullName(columnId)
-			p.skipSpaces()
 			if !ok {
 				return cols, false
 			}
+			p.skipSpaces()
 			cols = append(cols, col)
 		}
 		p.skipSpaces()
@@ -306,38 +306,70 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 	return cols, true
 }
 
+// parseTargets has three return states
+//  1. The input is not a list of targets (bool=false, err=nil)
+//  2. We correctly parse the targets (bool=true, err=nil)
+//  3. The input is a badly formed list of targets (bool=true, err=error)
+func (p *Parser) parseTargets() ([]FullName, bool, error) {
+	var targets []FullName
+
+	p.skipSpaces()
+
+	if p.skipByte('&') {
+		target, ok := p.parseFullName(typeId)
+		if !ok {
+			return targets, true, fmt.Errorf("malformed output expression")
+		}
+		targets = append(targets, target)
+		p.skipSpaces()
+
+		cp := p.save()
+		for p.skipByte(',') {
+			p.skipSpaces()
+			if p.skipByte('&') {
+				target, ok = p.parseFullName(typeId)
+				if !ok {
+					return targets, true, fmt.Errorf("malformed output expression")
+				}
+				targets = append(targets, target)
+				p.skipSpaces()
+				cp = p.save()
+			} else {
+				cp.restore()
+				break
+			}
+		}
+		return targets, true, nil
+	}
+	return targets, false, nil
+}
+
 // parseOutputExpression parses an SDL output holder to be filled with values
 // from the executed query.
 func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 	cp := p.save()
 	var err error
 	var cols []FullName
-	var goType FullName
-	var ok bool
 
 	p.skipSpaces()
 
-	// Case 1: The expression has only one part e.g. "&Person".
 	if p.skipByte('&') {
-		goType, ok = p.parseFullName(typeId)
+		// Case 1: The expression has only one part e.g. "&Person.*".
+		target, ok := p.parseFullName(typeId)
 		if !ok {
 			err = fmt.Errorf("malformed output expression")
 		}
 		p.skipSpaces()
-		return &OutputPart{cols, goType}, true, err
+		return &OutputPart{cols, []FullName{target}}, true, err
 
-		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person".
 	} else if cols, ok := p.parseColumns(); ok {
+		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		if p.skipString("AS") {
-			p.skipSpaces()
-			if p.skipByte('&') {
-				goType, ok = p.parseFullName(typeId)
-				if !ok {
-					err = fmt.Errorf("malformed output expression")
+			if targets, ok, err := p.parseTargets(); ok {
+				if err != nil {
+					return nil, true, err
 				}
-				p.skipSpaces()
-				return &OutputPart{cols, goType}, true, err
-
+				return &OutputPart{cols, targets}, true, err
 			}
 		}
 	}
