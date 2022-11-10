@@ -341,17 +341,30 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 
 	if p.skipByte('&') {
 		if p.skipByte('(') {
+			var starPresent = false
 			target, err := p.parseGoObject()
 			if err != nil {
 				return targets, true, err
 			}
+
+			if target.Name == "*" {
+				starPresent = true
+			}
 			targets = append(targets, target)
 			p.skipSpaces()
+
 			for p.skipByte(',') {
 				p.skipSpaces()
 				target, err := p.parseGoObject()
 				if err != nil {
 					return targets, true, err
+				}
+				if target.Name == "*" {
+					if starPresent {
+						return targets, true, fmt.Errorf("more than one asterisk")
+					} else {
+						starPresent = true
+					}
 				}
 				targets = append(targets, target)
 				p.skipSpaces()

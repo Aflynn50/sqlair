@@ -454,10 +454,18 @@ func TestMismatchedOutput(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: output expression: number of cols != number of targets"), err)
 }
 
-// Detect bad output expressions
+// Detect missing brackets
 func TestMissingClosingParenthesesOutput(t *testing.T) {
 	sql := "select (foo, bar) as &(P.name P.id from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: output expression: expected closing parentheses"), err)
+}
+
+// Detect multiple asterisk values
+func TestMutipleAsterisksOutput(t *testing.T) {
+	sql := "select (foo, bar) as &(P.*, A.*) from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: output expression: more than one asterisk"), err)
 }
