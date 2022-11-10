@@ -122,7 +122,6 @@ func (p *Parser) add(part queryPart) {
 	p.partStart = p.pos
 }
 
-// Parse takes an input string and parses the input and output parts. It returns
 // a pointer to a ParsedExpr.
 func (p *Parser) Parse(input string) (*ParsedExpr, error) {
 	p.init(input)
@@ -295,13 +294,21 @@ func (p *Parser) parseGoObject() (FullName, error) {
 // parseColumns parses text in the SQL query of the form "table.colname". If
 // there is more than one column then the columns must be bracketed together,
 // e.g.  "(col1, col2) AS Person".
-func (p *Parser) parseColumns() ([]FullName, bool) {
+// We return:
+//   - the list of columns
+//   - if there is a star column
+//   - whether columns were sucessfuly parsed
+func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 	var cols []FullName
+	var starPresent bool
 
 	p.skipSpaces()
 
 	// Case 1: A single column.
 	if col, ok := p.parseColumn(); ok {
+		if col.Name == "*" {
+			starPresent = true
+		}
 		cols = append(cols, col)
 
 		// Case 2: Multiple columns.
@@ -310,7 +317,10 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 		// If the column names are not formated in a recognisable way then give
 		// up trying to parse.
 		if !ok {
-			return cols, false
+			return cols, starPresent, false
+		}
+		if col.Name == "*" {
+			starPresent = true
 		}
 		cols = append(cols, col)
 		p.skipSpaces()
@@ -318,16 +328,19 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 			p.skipSpaces()
 			col, ok := p.parseColumn()
 			if !ok {
-				return cols, false
+				return cols, starPresent, false
 			}
-			p.skipSpaces()
+			if col.Name == "*" {
+				starPresent = true
+			}
 			cols = append(cols, col)
+			p.skipSpaces()
 		}
 		p.skipSpaces()
 		p.skipByte(')')
 	}
 	p.skipSpaces()
-	return cols, true
+	return cols, starPresent, true
 }
 
 // parseTargets has three return states
@@ -403,18 +416,28 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 		}
 		return &OutputPart{cols, targets}, true, nil
 
-	} else if cols, ok := p.parseColumns(); ok {
+	} else if cols, starCol, ok := p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		if p.skipString("AS") {
 			if targets, ok, err := p.parseTargets(); ok {
 				if err != nil {
 					return nil, true, fmt.Errorf("output expression: %s", err)
 				}
-				// If the target is not * then check there are equal columns and targets
+
+				// If the target is not * then check there are equal columns and
+				// targets.
 				if !(len(targets) == 1 && targets[0].Name == "*") {
 					if len(cols) != len(targets) {
 						return nil, true, fmt.Errorf("output expression: " +
 							"number of cols != number of targets")
+					}
+				}
+
+				// If the target is not M check that there are not mixed * and
+				// regular columns.
+				if targets[0].Prefix != "M" && len(cols) > 1 {
+					if starCol {
+						return nil, true, fmt.Errorf("cannot mix asterisk and explicit columns")
 					}
 				}
 				return &OutputPart{cols, targets}, true, nil
