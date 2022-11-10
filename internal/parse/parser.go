@@ -437,7 +437,8 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 				// regular columns.
 				if targets[0].Prefix != "M" && len(cols) > 1 {
 					if starCol {
-						return nil, true, fmt.Errorf("cannot mix asterisk and explicit columns")
+						return nil, true, fmt.Errorf("output expression: " +
+							"cannot mix asterisk and explicit columns")
 					}
 				}
 				return &OutputPart{cols, targets}, true, nil

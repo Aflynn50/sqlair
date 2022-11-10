@@ -462,10 +462,18 @@ func TestMissingClosingParenthesesOutput(t *testing.T) {
 	assert.Equal(t, fmt.Errorf("parser error: output expression: expected closing parentheses"), err)
 }
 
-// Detect multiple asterisk values
-func TestMutipleAsterisksOutput(t *testing.T) {
+// Detect multiple asterisk targets
+func TestMutipleTargetAsterisksOutput(t *testing.T) {
 	sql := "select (foo, bar) as &(P.*, A.*) from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: output expression: more than one asterisk"), err)
+}
+
+// Detect multiple asterisk columns
+func TestMutipleColumnAsterisksOutput(t *testing.T) {
+	sql := "select (foo, bar, t.*) as &P.* from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: output expression: cannot mix asterisk and explicit columns"), err)
 }
