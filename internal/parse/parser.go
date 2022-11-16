@@ -122,6 +122,7 @@ func (p *Parser) add(part queryPart) {
 	p.partStart = p.pos
 }
 
+// Parse takes an input string and parses the input and output parts. It returns
 // a pointer to a ParsedExpr.
 func (p *Parser) Parse(input string) (*ParsedExpr, error) {
 	p.init(input)
@@ -270,8 +271,9 @@ func (p *Parser) parseColumn() (FullName, bool) {
 	return fn, false
 }
 
-// When parsing an object the type name is in FullName.Prefix and the field name
-// is in FullName.Name.
+// parseGoObject parses a source or target go object of the from Prefix.Name
+// where the Type is the Prefix and the field is the Name (this applys to Maps
+// and structs).
 func (p *Parser) parseGoObject() (FullName, error) {
 	var fn FullName
 	if id, ok := p.parseIdentifier(disallowStar); ok {
@@ -302,8 +304,7 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 	var cols []FullName
 	var starPresent bool
 
-	p.skipSpaces()
-
+	cp := p.save()
 	// Case 1: A single column.
 	if col, ok := p.parseColumn(); ok {
 		if col.Name == "*" {
@@ -317,6 +318,7 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 		// If the column names are not formated in a recognisable way then give
 		// up trying to parse.
 		if !ok {
+			cp.restore()
 			return cols, starPresent, false
 		}
 		if col.Name == "*" {
@@ -328,6 +330,7 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 			p.skipSpaces()
 			col, ok := p.parseColumn()
 			if !ok {
+				cp.restore()
 				return cols, starPresent, false
 			}
 			if col.Name == "*" {
@@ -339,7 +342,6 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 		p.skipSpaces()
 		p.skipByte(')')
 	}
-	p.skipSpaces()
 	return cols, starPresent, true
 }
 
@@ -349,8 +351,7 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 //  3. The input is a badly formed list of targets (bool=true, err=error)
 func (p *Parser) parseTargets() ([]FullName, bool, error) {
 	var targets []FullName
-
-	p.skipSpaces()
+	cp := p.save()
 
 	if p.skipByte('&') {
 		if p.skipByte('(') {
@@ -385,7 +386,6 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 			if !p.skipByte(')') {
 				return targets, true, fmt.Errorf("expected closing parentheses")
 			}
-			p.skipSpaces()
 		} else {
 			target, err := p.parseGoObject()
 			if err != nil {
@@ -393,11 +393,10 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 			}
 
 			targets = append(targets, target)
-			p.skipSpaces()
-
 		}
 		return targets, true, nil
 	}
+	cp.restore()
 	return targets, false, nil
 }
 
@@ -405,20 +404,23 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 // from the executed query.
 func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 	cp := p.save()
-	var cols []FullName
-
+	// Skip spaces to enforce correct spacing around IO
 	p.skipSpaces()
+	var cols []FullName
 
 	if targets, ok, err := p.parseTargets(); ok {
 		// Case 1: simple case with no columns e.g. &Person.*
 		if err != nil {
 			return nil, true, fmt.Errorf("output expression: %s", err)
 		}
+		p.skipSpaces()
 		return &OutputPart{cols, targets}, true, nil
 
 	} else if cols, starCol, ok := p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
+		p.skipSpaces()
 		if p.skipString("AS") {
+			p.skipSpaces()
 			if targets, ok, err := p.parseTargets(); ok {
 				if err != nil {
 					return nil, true, fmt.Errorf("output expression: %s", err)
@@ -441,6 +443,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 							"cannot mix asterisk and explicit columns")
 					}
 				}
+				p.skipSpaces()
 				return &OutputPart{cols, targets}, true, nil
 			}
 		}
@@ -453,8 +456,9 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 // query argument.
 func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 	cp := p.save()
-
+	// Skip spaces to enforce correct spacing around IO
 	p.skipSpaces()
+
 	if p.skipByte('$') {
 		fn, err := p.parseGoObject()
 		if err != nil {
@@ -471,7 +475,6 @@ func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 // query argument.
 func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 	cp := p.save()
-	p.skipSpaces()
 
 	var err error
 
