@@ -260,8 +260,7 @@ func (p *Parser) parseColumn() (FullName, bool) {
 				return fn, true
 			}
 		} else {
-			// A column name specified without a table prefix is a name not a
-			// prefix
+			// A column name specified without a table prefix should be in Name
 			fn.Name = fn.Prefix
 			fn.Prefix = ""
 			return fn, true
@@ -271,8 +270,8 @@ func (p *Parser) parseColumn() (FullName, bool) {
 	return fn, false
 }
 
-// parseGoObject parses a source or target go object of the from Prefix.Name
-// where the Type is the Prefix and the field is the Name (this applys to Maps
+// parseGoObject parses a source or target go object of the form Prefix.Name
+// where the Type is the Prefix and the field is the Name (this applys to maps
 // and structs).
 func (p *Parser) parseGoObject() (FullName, error) {
 	var fn FullName
@@ -300,29 +299,19 @@ func (p *Parser) parseGoObject() (FullName, error) {
 //   - the list of columns
 //   - if there is a star column
 //   - whether columns were sucessfuly parsed
-func (p *Parser) parseColumns() ([]FullName, bool, bool) {
-	var cols []FullName
-	var starPresent bool
-
+func (p *Parser) parseColumns() (cols []FullName, ok bool) {
 	cp := p.save()
 	// Case 1: A single column.
 	if col, ok := p.parseColumn(); ok {
-		if col.Name == "*" {
-			starPresent = true
-		}
 		cols = append(cols, col)
-
-		// Case 2: Multiple columns.
 	} else if p.skipByte('(') {
+		// Case 2: Multiple columns.
 		col, ok := p.parseColumn()
 		// If the column names are not formated in a recognisable way then give
 		// up trying to parse.
 		if !ok {
 			cp.restore()
-			return cols, starPresent, false
-		}
-		if col.Name == "*" {
-			starPresent = true
+			return cols, false
 		}
 		cols = append(cols, col)
 		p.skipSpaces()
@@ -331,10 +320,7 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 			col, ok := p.parseColumn()
 			if !ok {
 				cp.restore()
-				return cols, starPresent, false
-			}
-			if col.Name == "*" {
-				starPresent = true
+				return cols, false
 			}
 			cols = append(cols, col)
 			p.skipSpaces()
@@ -342,47 +328,32 @@ func (p *Parser) parseColumns() ([]FullName, bool, bool) {
 		p.skipSpaces()
 		p.skipByte(')')
 	}
-	return cols, starPresent, true
+	return cols, true
 }
 
-// parseTargets has three return states
-//  1. The input is not a list of targets (bool=false, err=nil)
-//  2. We correctly parse the targets (bool=true, err=nil)
-//  3. The input is a badly formed list of targets (bool=true, err=error)
 func (p *Parser) parseTargets() ([]FullName, bool, error) {
 	var targets []FullName
 	cp := p.save()
 
 	if p.skipByte('&') {
 		if p.skipByte('(') {
-			var starPresent = false
 			target, err := p.parseGoObject()
 			if err != nil {
 				return targets, true, err
 			}
-
-			if target.Name == "*" {
-				starPresent = true
-			}
 			targets = append(targets, target)
-			p.skipSpaces()
 
+			p.skipSpaces()
 			for p.skipByte(',') {
 				p.skipSpaces()
 				target, err := p.parseGoObject()
 				if err != nil {
 					return targets, true, err
 				}
-				if target.Name == "*" {
-					if starPresent {
-						return targets, true, fmt.Errorf("more than one asterisk")
-					} else {
-						starPresent = true
-					}
-				}
 				targets = append(targets, target)
 				p.skipSpaces()
 			}
+
 			if !p.skipByte(')') {
 				return targets, true, fmt.Errorf("expected closing parentheses")
 			}
@@ -394,10 +365,25 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 
 			targets = append(targets, target)
 		}
+		if starCount(targets) > 1 {
+			return targets, true, fmt.Errorf("more than one asterisk")
+		}
 		return targets, true, nil
+
 	}
 	cp.restore()
 	return targets, false, nil
+}
+
+// starCount returns the number of FullNames with a asterisk in the suffix
+func starCount(fns []FullName) int {
+	s := 0
+	for _, fn := range fns {
+		if fn.Name == "*" {
+			s++
+		}
+	}
+	return s
 }
 
 // parseOutputExpression parses an SDL output holder to be filled with values
@@ -416,7 +402,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 		p.skipSpaces()
 		return &OutputPart{cols, targets}, true, nil
 
-	} else if cols, starCol, ok := p.parseColumns(); ok {
+	} else if cols, ok := p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		p.skipSpaces()
 		if p.skipString("AS") {
@@ -437,11 +423,10 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 
 				// If the target is not M check that there are not mixed * and
 				// regular columns.
-				if targets[0].Prefix != "M" && len(cols) > 1 {
-					if starCol {
-						return nil, true, fmt.Errorf("output expression: " +
-							"cannot mix asterisk and explicit columns")
-					}
+				if targets[0].Prefix != "M" && len(cols) > 1 &&
+					starCount(cols) >= 1 {
+					return nil, true, fmt.Errorf("output expression: " +
+						"cannot mix asterisk and explicit columns")
 				}
 				p.skipSpaces()
 				return &OutputPart{cols, targets}, true, nil
