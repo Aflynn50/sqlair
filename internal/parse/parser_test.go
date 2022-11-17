@@ -37,10 +37,6 @@ func TestRound(t *testing.T) {
 			"ParsedExpr[BypassPart[select] OutputPart[Source:p.* Target:Person.*]]",
 		},
 		{
-			"select p.* AS&Person.*",
-			"ParsedExpr[BypassPart[select] OutputPart[Source:p.* Target:Person.*]]",
-		},
-		{
 			"select p.* as &Person.*, '&notAnOutputExpresion.*' as literal from t",
 			"ParsedExpr[BypassPart[select] " +
 				"OutputPart[Source:p.* Target:Person.*] " +
@@ -261,6 +257,32 @@ func TestRound(t *testing.T) {
 				"BypassPart[FROM person AS p]]",
 		},
 		{
+			"SELECT FUNC() AS &Person.Name " +
+				"FROM person AS p",
+			"ParsedExpr[BypassPart[SELECT FUNC() AS] OutputPart[Source: Target:Person.Name] " +
+				"BypassPart[FROM person AS p]]",
+		},
+		{
+			"SELECT Foo & Bar FROM person AS p",
+			"ParsedExpr[BypassPart[SELECT Foo & Bar FROM person AS p]]",
+		},
+		{
+			"SELECT Foo && Bar FROM person AS p",
+			"ParsedExpr[BypassPart[SELECT Foo && Bar FROM person AS p]]",
+		},
+		{
+			"SELECT $ FROM moneytable",
+			"ParsedExpr[BypassPart[SELECT $ FROM moneytable]]",
+		},
+		{
+			"SELECT foo FROM data$",
+			"ParsedExpr[BypassPart[SELECT foo FROM data$]]",
+		},
+		{
+			"SELECT dollerrow$ FROM moneytable",
+			"ParsedExpr[BypassPart[SELECT dollerrow$ FROM moneytable]]",
+		},
+		{
 			"INSERT INTO person (name) VALUES $Person.name",
 			"ParsedExpr[BypassPart[INSERT INTO person (name) VALUES] " +
 				"InputPart[Person.name]]",
@@ -334,70 +356,14 @@ func TestBadEscaped(t *testing.T) {
 
 // Detect bad input expressions
 func TestBadFormatInput(t *testing.T) {
-	sql := "select foo from t where x = $.id"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad input expressions
-func TestBadFormatInputV2(t *testing.T) {
 	sql := "select foo from t where x = $Address."
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object field"), err)
 }
 
-// Detect bad input expressions
-func TestBadFormatInputV3(t *testing.T) {
-	sql := "select foo from t where x = $"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad input expressions
-func TestBadFormatInputV4(t *testing.T) {
-	sql := "select foo from t where x = $$Address"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad input expressions
-func TestBadFormatInputV5(t *testing.T) {
-	sql := "select foo from t where x = $```"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad input expressions
-func TestBadFormatInputV6(t *testing.T) {
-	sql := "select foo from t where x = $.."
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad input expressions
-func TestBadFormatInputV7(t *testing.T) {
-	sql := "select foo from t where x = $."
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object"), err)
-}
-
 // Detect bad output expressions
 func TestBadFormatOutput(t *testing.T) {
-	sql := "select foo as &.id from t"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad output expressions
-func TestBadFormatOutputV2(t *testing.T) {
 	sql := "select foo as &bar. from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
@@ -405,47 +371,7 @@ func TestBadFormatOutputV2(t *testing.T) {
 }
 
 // Detect bad output expressions
-func TestBadFormatOutputV3(t *testing.T) {
-	sql := "select foo as & from t"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad output expressions
-func TestBadFormatOutputV4(t *testing.T) {
-	sql := "select foo as &&bar from t"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad output expressions
-func TestBadFormatOutputV5(t *testing.T) {
-	sql := "select foo as &``` from t"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad output expressions
-func TestBadFormatOutputV6(t *testing.T) {
-	sql := "select foo as &.. from t"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad output expressions
-func TestBadFormatOutputV7(t *testing.T) {
-	sql := "select foo as &. from t"
-	parser := parse.NewParser()
-	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: not a valid identifier for a go object"), err)
-}
-
-// Detect bad output expressions
-func TestBadFormatOutputV8(t *testing.T) {
+func TestBadFormatOutputV2(t *testing.T) {
 	sql := "select foo as &Person from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
@@ -453,7 +379,7 @@ func TestBadFormatOutputV8(t *testing.T) {
 }
 
 // Detect bad output expressions
-func TestBadFormatOutputV9(t *testing.T) {
+func TestBadFormatOutputV3(t *testing.T) {
 	sql := "select foo as &(Person) from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
@@ -461,7 +387,7 @@ func TestBadFormatOutputV9(t *testing.T) {
 }
 
 // Detect bad output expressions
-func TestBadFormatOutputV10(t *testing.T) {
+func TestBadFormatOutputV4(t *testing.T) {
 	sql := "select foo, bar as &(Person.name, Person) from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
@@ -473,7 +399,15 @@ func TestMismatchedOutput(t *testing.T) {
 	sql := "select (foo, bar) as &P.name from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("parser error: output expression: number of cols != number of targets"), err)
+	assert.Equal(t, fmt.Errorf("parser error: output expression: number of cols = 2 but number of targets = 1"), err)
+}
+
+// Detect mismatched columns and targets in output expression
+func TestMismatchedOutputV2(t *testing.T) {
+	sql := "select foo as &(P.name, P.age) from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: output expression: number of cols = 1 but number of targets = 2"), err)
 }
 
 // Detect missing brackets

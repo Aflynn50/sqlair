@@ -232,6 +232,8 @@ func isNameByte(c byte) bool {
 //  - bool == false
 //		The constrct was not the one we are looking for
 
+// parseIdentifier parses either a name made up only of nameBytes or an
+// asterisk.
 func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 	if p.pos >= len(p.input) {
 		return "", false
@@ -258,21 +260,21 @@ func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 }
 
 // When parsing a column the table name (if extant) is in FullName.Prefix and
-// the column name is in FullName.Name.
+// the column name is in FullName.Name. We parse and return true if the column
+// is of the form prefix.name or name. Otherwise return false.
 func (p *Parser) parseColumn() (FullName, bool) {
 	cp := p.save()
 	var fn FullName
 	if id, ok := p.parseIdentifier(allowStar); ok {
-		fn.Prefix = id
 		if p.skipByte('.') {
-			if id, ok := p.parseIdentifier(allowStar); ok {
-				fn.Name = id
+			if idCol, ok := p.parseIdentifier(allowStar); ok {
+				fn.Prefix = id
+				fn.Name = idCol
 				return fn, true
 			}
 		} else {
 			// A column name specified without a table prefix should be in Name
-			fn.Name = fn.Prefix
-			fn.Prefix = ""
+			fn.Name = id
 			return fn, true
 		}
 	}
@@ -281,25 +283,26 @@ func (p *Parser) parseColumn() (FullName, bool) {
 }
 
 // parseGoObject parses a source or target go object of the form Prefix.Name
-// where the Type is the Prefix and the field is the Name (this applys to maps
+// where the Type is the Prefix and the field is the Name (this applies to maps
 // and structs).
-func (p *Parser) parseGoObject() (FullName, error) {
+func (p *Parser) parseGoObject() (FullName, bool, error) {
 	var fn FullName
+	cp := p.save()
 	if id, ok := p.parseIdentifier(disallowStar); ok {
-		fn.Prefix = id
 		if p.skipByte('.') {
-			if id, ok := p.parseIdentifier(allowStar); ok {
-				fn.Name = id
-				return fn, nil
+			if idField, ok := p.parseIdentifier(allowStar); ok {
+				fn.Prefix = id
+				fn.Name = idField
+				return fn, true, nil
 			} else {
-				return fn, fmt.Errorf("not a valid identifier for a go object field")
+				return fn, true, fmt.Errorf("not a valid identifier for a go object field")
 			}
 		} else {
-			return fn, fmt.Errorf("go objects need to be qualified")
+			return fn, true, fmt.Errorf("go objects need to be qualified")
 		}
-	} else {
-		return fn, fmt.Errorf("not a valid identifier for a go object")
 	}
+	cp.restore()
+	return fn, false, nil
 }
 
 // parseColumns parses text in the SQL query of the form "table.colname". If
@@ -311,13 +314,14 @@ func (p *Parser) parseGoObject() (FullName, error) {
 //   - whether columns were sucessfuly parsed
 func (p *Parser) parseColumns() (cols []FullName, ok bool) {
 	cp := p.save()
+	p.skipSpaces()
 	// Case 1: A single column.
 	if col, ok := p.parseColumn(); ok {
 		cols = append(cols, col)
 	} else if p.skipByte('(') {
 		// Case 2: Multiple columns.
 		col, ok := p.parseColumn()
-		// If the column names are not formated in a recognisable way then give
+		// If the column names are not formatted in a recognisable way then give
 		// up trying to parse.
 		if !ok {
 			cp.restore()
@@ -341,14 +345,24 @@ func (p *Parser) parseColumns() (cols []FullName, ok bool) {
 	return cols, true
 }
 
+// parseTargets parses the part of the output expression following the
+// ampersand. This can be one or more go object. If the ampersand is not found
+// or is not preceded by a space and succeeded by a name or opening bracket the
+// function returns false. Otherwise it returns true and parses the targets. It
+// throws an error if they are not of the expected form.
 func (p *Parser) parseTargets() ([]FullName, bool, error) {
 	var targets []FullName
 	cp := p.save()
 
-	if p.skipByte('&') {
+	// An & must be preceded by a space and succeeded by a name or opening
+	// bracket.
+	if p.skipString(" &") {
 		if p.skipByte('(') {
-			target, err := p.parseGoObject()
-			if err != nil {
+			target, ok, err := p.parseGoObject()
+			if !ok {
+				return targets, true, fmt.Errorf("not a valid identifier " +
+					"for a go object field")
+			} else if err != nil {
 				return targets, true, err
 			}
 			targets = append(targets, target)
@@ -356,8 +370,11 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 			p.skipSpaces()
 			for p.skipByte(',') {
 				p.skipSpaces()
-				target, err := p.parseGoObject()
-				if err != nil {
+				target, ok, err := p.parseGoObject()
+				if !ok {
+					return targets, true, fmt.Errorf("not a valid identifier " +
+						"for a go object field")
+				} else if err != nil {
 					return targets, true, err
 				}
 				targets = append(targets, target)
@@ -367,19 +384,18 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 			if !p.skipByte(')') {
 				return targets, true, fmt.Errorf("expected closing parentheses")
 			}
-		} else {
-			target, err := p.parseGoObject()
+			if starCount(targets) > 1 {
+				return targets, true, fmt.Errorf("more than one asterisk")
+			}
+			return targets, true, nil
+		} else if target, ok, err := p.parseGoObject(); ok {
 			if err != nil {
 				return targets, true, err
 			}
 
 			targets = append(targets, target)
+			return targets, true, nil
 		}
-		if starCount(targets) > 1 {
-			return targets, true, fmt.Errorf("more than one asterisk")
-		}
-		return targets, true, nil
-
 	}
 	cp.restore()
 	return targets, false, nil
@@ -396,12 +412,10 @@ func starCount(fns []FullName) int {
 	return s
 }
 
-// parseOutputExpression parses an SDL output holder to be filled with values
+// parseOutputExpression parses an DSL output holder to be filled with values
 // from the executed query.
 func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 	cp := p.save()
-	// Skip spaces to enforce correct spacing around IO
-	p.skipSpaces()
 	var cols []FullName
 
 	if targets, ok, err := p.parseTargets(); ok {
@@ -416,23 +430,24 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		p.skipSpaces()
 		if p.skipString("AS") {
-			p.skipSpaces()
 			if targets, ok, err := p.parseTargets(); ok {
 				if err != nil {
-					return nil, true, fmt.Errorf("output expression: %s", err)
+					return nil, true, fmt.Errorf("output expression: %s",
+						err)
 				}
 
-				// If the target is not * then check there are equal columns and
-				// targets.
+				// If the target is not * then check there are equal columns
+				// and targets.
 				if !(len(targets) == 1 && targets[0].Name == "*") {
 					if len(cols) != len(targets) {
-						return nil, true, fmt.Errorf("output expression: " +
-							"number of cols != number of targets")
+						return nil, true, fmt.Errorf("output expression: "+
+							"number of cols = %d but number of targets = %d",
+							len(cols), len(targets))
 					}
 				}
 
-				// If the target is not M check that there are not mixed * and
-				// regular columns.
+				// If the target is not M check that there are not mixed *
+				// and regular columns.
 				if targets[0].Prefix != "M" && len(cols) > 1 &&
 					starCount(cols) >= 1 {
 					return nil, true, fmt.Errorf("output expression: " +
@@ -447,26 +462,25 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 	return nil, false, nil
 }
 
-// parseInputExpression parses an SDL input go-defined type to be used as a
+// parseInputExpression parses an DSL input go-defined type to be used as a
 // query argument.
 func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 	cp := p.save()
-	// Skip spaces to enforce correct spacing around IO
-	p.skipSpaces()
 
-	if p.skipByte('$') {
-		fn, err := p.parseGoObject()
-		if err != nil {
-			return nil, true, fmt.Errorf("input expression: %s", err)
+	if p.skipString(" $") {
+		if fn, ok, err := p.parseGoObject(); ok {
+			if err != nil {
+				return nil, true, fmt.Errorf("input expression: %s", err)
+			}
+			p.skipSpaces()
+			return &InputPart{fn}, true, nil
 		}
-		p.skipSpaces()
-		return &InputPart{fn}, true, nil
 	}
 	cp.restore()
 	return nil, false, nil
 }
 
-// parseInputExpression parses an SDL input go-defined type to be used as a
+// parseInputExpression parses an DSL input go-defined type to be used as a
 // query argument.
 func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 	cp := p.save()
