@@ -255,6 +255,12 @@ func TestRound(t *testing.T) {
 				"InputPart[Person.name]]",
 		},
 		{
+			"SELECT FUNC() AS &Person.Name " +
+				"FROM person AS p",
+			"ParsedExpr[BypassPart[SELECT FUNC() AS] OutputPart[Source: Target:Person.Name] " +
+				"BypassPart[FROM person AS p]]",
+		},
+		{
 			"INSERT INTO person (name) VALUES $Person.name",
 			"ParsedExpr[BypassPart[INSERT INTO person (name) VALUES] " +
 				"InputPart[Person.name]]",
@@ -441,6 +447,22 @@ func TestBadFormatOutputV7(t *testing.T) {
 // Detect bad output expressions
 func TestBadFormatOutputV8(t *testing.T) {
 	sql := "select foo as &Person from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: output expression: go objects need to be qualified"), err)
+}
+
+// Detect bad output expressions
+func TestBadFormatOutputV9(t *testing.T) {
+	sql := "select foo as &(Person) from t"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: output expression: go objects need to be qualified"), err)
+}
+
+// Detect bad output expressions
+func TestBadFormatOutputV10(t *testing.T) {
+	sql := "select foo, bar as &(Person.name, Person) from t"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: output expression: go objects need to be qualified"), err)

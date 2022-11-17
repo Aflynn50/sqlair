@@ -61,13 +61,6 @@ func (cp *checkpoint) restore() {
 	cp.parser.parts = cp.parts
 }
 
-type idClass int
-
-const (
-	columnId idClass = iota
-	typeId
-)
-
 type starFlag int
 
 const (
