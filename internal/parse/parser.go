@@ -116,7 +116,8 @@ func (p *Parser) add(part queryPart) {
 }
 
 // Parse takes an input string and parses the input and output parts. It returns
-// a pointer to a ParsedExpr.
+// a pointer to a ParsedExpr. If the parser encounters an error then ParsedExpr
+// is nil.
 func (p *Parser) Parse(input string) (*ParsedExpr, error) {
 	p.init(input)
 
@@ -154,6 +155,10 @@ func (p *Parser) Parse(input string) (*ParsedExpr, error) {
 func (p *Parser) peekByte(b byte) bool {
 	return p.pos < len(p.input) && p.input[p.pos] == b
 }
+
+// Functions with the prefix skip always return a single bool. If they return
+// false the parser state is unchange. If they return true they move p.pos to
+// the char after the pattern they have skipped.
 
 // skipByte jumps over the current byte if it matches the byte passed as a
 // parameter. Returns true in that case, false otherwise.
@@ -212,9 +217,21 @@ func isNameByte(c byte) bool {
 		'0' <= c && c <= '9' || c == '_'
 }
 
-// These functions attempt to parse some construct, they return a bool and that
-// construct, if they can't parse they return false, restore the parser and
-// leave the default value in the other return type
+// Functions with the prefix parse attempt to parse some construct. They return
+// the construct, and an error and/or a bool that indicates if the the construct
+// was sucessfully parsed.
+//
+// An error is only returned if the construct being parsed is supposed to be an
+// IO expression. If it is possibly something else then a bool containing false
+// is returned.
+// Return cases:
+//  - bool == true, err == nil
+//		The construct was sucessfully parsed
+//  - bool == true, err != nil
+//		The construct was recognised but was not correctly formatted
+//  - bool == false
+//		The constrct was not the one we are looking for
+
 func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 	if p.pos >= len(p.input) {
 		return "", false
