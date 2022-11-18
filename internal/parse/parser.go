@@ -466,8 +466,10 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 // query argument.
 func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 	cp := p.save()
+	// Skip spaces to enforce correct spacing around IO
+	p.skipSpaces()
 
-	if p.skipString(" $") {
+	if p.skipByte('$') {
 		if fn, ok, err := p.parseGoObject(); ok {
 			if err != nil {
 				return nil, true, fmt.Errorf("input expression: %s", err)

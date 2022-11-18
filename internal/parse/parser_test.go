@@ -251,6 +251,12 @@ func TestRound(t *testing.T) {
 				"InputPart[Person.name]]",
 		},
 		{
+			"SELECT p.*, a.district " +
+				"FROM person AS p WHERE p.name=$Person.name",
+			"ParsedExpr[BypassPart[SELECT p.*, a.district FROM person AS p WHERE p.name=] " +
+				"InputPart[Person.name]]",
+		},
+		{
 			"SELECT FUNC() AS &Person.Name " +
 				"FROM person AS p",
 			"ParsedExpr[BypassPart[SELECT FUNC() AS] OutputPart[Source: Target:Person.Name] " +
@@ -360,6 +366,14 @@ func TestBadFormatInput(t *testing.T) {
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	assert.Equal(t, fmt.Errorf("parser error: input expression: not a valid identifier for a go object field"), err)
+}
+
+// Detect bad input expressions
+func TestBadFormatInputV2(t *testing.T) {
+	sql := "select foo from t where x = $Address"
+	parser := parse.NewParser()
+	_, err := parser.Parse(sql)
+	assert.Equal(t, fmt.Errorf("parser error: input expression: go objects need to be qualified"), err)
 }
 
 // Detect bad output expressions
