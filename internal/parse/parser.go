@@ -1,6 +1,7 @@
 package parse
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 )
@@ -84,15 +85,16 @@ type ParsedExpr struct {
 // String returns a textual representation of the AST contained in the
 // ParsedExpr for debugging purposes.
 func (pe *ParsedExpr) String() string {
-	out := "ParsedExpr["
+	var out bytes.Buffer
+	out.WriteString("ParsedExpr[")
 	for i, p := range pe.queryParts {
 		if i > 0 {
-			out = out + " "
+			out.WriteString(" ")
 		}
-		out = out + p.String()
+		out.WriteString(p.String())
 	}
-	out = out + "]"
-	return out
+	out.WriteString("]")
+	return out.String()
 }
 
 // add pushes the parsed part to the parsedExprBuilder along with the BypassPart
@@ -118,30 +120,36 @@ func (p *Parser) add(part queryPart) {
 // Parse takes an input string and parses the input and output parts. It returns
 // a pointer to a ParsedExpr. If the parser encounters an error then ParsedExpr
 // is nil.
-func (p *Parser) Parse(input string) (*ParsedExpr, error) {
+func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("cannot parse expression: %s", err)
+		}
+	}()
 	p.init(input)
 
 	for {
 		p.partStart = p.pos
 
 		if op, ok, err := p.parseOutputExpression(); err != nil {
-			return nil, fmt.Errorf("parser error: %s", err)
+			return nil, err
 		} else if ok {
 			p.add(op)
 
 		} else if ip, ok, err := p.parseInputExpression(); err != nil {
-			return nil, fmt.Errorf("parser error: %s", err)
+			return nil, err
 		} else if ok {
 			p.add(ip)
 
 		} else if sp, ok, err := p.parseStringLiteral(); err != nil {
-			return nil, fmt.Errorf("parser error: %s", err)
+			return nil, err
 		} else if ok {
 			p.add(sp)
 
 		} else if p.pos == len(p.input) {
 			break
 		} else {
+			// If nothing above can be parsed we advance the parser.
 			p.pos++
 		}
 	}
@@ -217,6 +225,19 @@ func isNameByte(c byte) bool {
 		'0' <= c && c <= '9' || c == '_'
 }
 
+// skipName returns false if the parser is not on a name. Otherwise it advances
+// the parser until it is on the first non name byte and returns true.
+func (p *Parser) skipName() bool {
+	if p.pos >= len(p.input) {
+		return false
+	}
+	start := p.pos
+	for p.pos < len(p.input) && isNameByte(p.input[p.pos]) {
+		p.pos++
+	}
+	return p.pos > start
+}
+
 // Functions with the prefix parse attempt to parse some construct. They return
 // the construct, and an error and/or a bool that indicates if the the construct
 // was sucessfully parsed.
@@ -239,29 +260,20 @@ func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 		return "", false
 	}
 	if starF == allowStar {
-		if p.peekByte('*') {
-			p.pos++
+		if p.skipByte('*') {
 			return "*", true
 		}
 	}
 
 	idStart := p.pos
-	if !isNameByte(p.input[p.pos]) {
-		return "", false
+	if p.skipName() {
+		return p.input[idStart:p.pos], true
 	}
-	var i int
-	for i = p.pos; i < len(p.input); i++ {
-		if !isNameByte(p.input[i]) {
-			break
-		}
-	}
-	p.pos = i
-	return p.input[idStart:i], true
+	return "", false
 }
 
-// When parsing a column the table name (if extant) is in FullName.Prefix and
-// the column name is in FullName.Name. We parse and return true if the column
-// is of the form prefix.name or name. Otherwise return false.
+// parseColumn parses a column made up of name bytes, optionally dot-prefixed by
+// its table name.
 func (p *Parser) parseColumn() (FullName, bool) {
 	cp := p.save()
 	var fn FullName
