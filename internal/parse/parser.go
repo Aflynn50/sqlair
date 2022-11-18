@@ -474,8 +474,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 	return nil, false, nil
 }
 
-// parseInputExpression parses an DSL input go-defined type to be used as a
-// query argument.
+// parseInputExpression parses an input expression of the form $Type.name.
 func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 	cp := p.save()
 	// Skip spaces to enforce correct spacing around IO
