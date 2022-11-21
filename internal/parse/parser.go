@@ -153,8 +153,7 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 			p.pos++
 		}
 	}
-	// Add any remaining uparsed string input to the parser
-
+	// Add any remaining unparsed string input to the parser.
 	p.add(nil)
 	return &ParsedExpr{p.parts}, nil
 }
@@ -240,25 +239,19 @@ func (p *Parser) skipName() bool {
 
 // Functions with the prefix parse attempt to parse some construct. They return
 // the construct, and an error and/or a bool that indicates if the the construct
-// was sucessfully parsed.
+// was successfully parsed.
 //
-// An error is only returned if the construct being parsed is supposed to be an
-// IO expression. If it is possibly something else then a bool containing false
-// is returned.
 // Return cases:
 //  - bool == true, err == nil
 //		The construct was sucessfully parsed
-//  - bool == true, err != nil
+//  - bool == false, err != nil
 //		The construct was recognised but was not correctly formatted
-//  - bool == false
-//		The constrct was not the one we are looking for
+//  - bool == false, err == nil
+//		The construct was not the one we are looking for
 
 // parseIdentifier parses either a name made up only of nameBytes or an
 // asterisk.
 func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
-	if p.pos >= len(p.input) {
-		return "", false
-	}
 	if starF == allowStar {
 		if p.skipByte('*') {
 			return "*", true
@@ -307,10 +300,10 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 				fn.Name = idField
 				return fn, true, nil
 			} else {
-				return fn, true, fmt.Errorf("not a valid identifier for a go object field")
+				return fn, false, fmt.Errorf("not a valid identifier for a go object field")
 			}
 		} else {
-			return fn, true, fmt.Errorf("go objects need to be qualified")
+			return fn, false, fmt.Errorf("go objects need to be qualified")
 		}
 	}
 	cp.restore()
@@ -370,43 +363,41 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 	// bracket.
 	if p.skipString(" &") {
 		if p.skipByte('(') {
-			target, ok, err := p.parseGoObject()
-			if !ok {
-				return targets, true, fmt.Errorf("not a valid identifier " +
-					"for a go object field")
-			} else if err != nil {
-				return targets, true, err
-			}
-			targets = append(targets, target)
-
-			p.skipSpaces()
-			for p.skipByte(',') {
-				p.skipSpaces()
-				target, ok, err := p.parseGoObject()
-				if !ok {
-					return targets, true, fmt.Errorf("not a valid identifier " +
-						"for a go object field")
-				} else if err != nil {
-					return targets, true, err
-				}
+			if target, ok, err := p.parseGoObject(); ok {
 				targets = append(targets, target)
+
 				p.skipSpaces()
-			}
+				for p.skipByte(',') {
+					p.skipSpaces()
+					if target, ok, err := p.parseGoObject(); ok {
+						targets = append(targets, target)
+						p.skipSpaces()
+					} else if err != nil {
+						return targets, true, err
+					} else {
+						return targets, false, fmt.Errorf("not a valid identifier " +
+							"for a go object field")
+					}
+				}
 
-			if !p.skipByte(')') {
-				return targets, true, fmt.Errorf("expected closing parentheses")
+				if !p.skipByte(')') {
+					return targets, false, fmt.Errorf("expected closing parentheses")
+				}
+				if starCount(targets) > 1 {
+					return targets, false, fmt.Errorf("more than one asterisk")
+				}
+				return targets, true, nil
+			} else if err != nil {
+				return targets, false, err
+			} else {
+				return targets, false, fmt.Errorf("not a valid identifier " +
+					"for a go object field")
 			}
-			if starCount(targets) > 1 {
-				return targets, true, fmt.Errorf("more than one asterisk")
-			}
-			return targets, true, nil
 		} else if target, ok, err := p.parseGoObject(); ok {
-			if err != nil {
-				return targets, true, err
-			}
-
 			targets = append(targets, target)
 			return targets, true, nil
+		} else if err != nil {
+			return targets, false, err
 		}
 	}
 	cp.restore()
@@ -432,19 +423,17 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 
 	if targets, ok, err := p.parseTargets(); ok {
 		// Case 1: simple case with no columns e.g. &Person.*
-		if err != nil {
-			return nil, true, fmt.Errorf("output expression: %s", err)
-		}
 		p.skipSpaces()
 		return &OutputPart{cols, targets}, true, nil
-
+	} else if err != nil {
+		return nil, false, fmt.Errorf("output expression: %s", err)
 	} else if cols, ok := p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		p.skipSpaces()
 		if p.skipString("AS") {
 			if targets, ok, err := p.parseTargets(); ok {
 				if err != nil {
-					return nil, true, fmt.Errorf("output expression: %s",
+					return nil, false, fmt.Errorf("output expression: %s",
 						err)
 				}
 
@@ -452,7 +441,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 				// and targets.
 				if !(len(targets) == 1 && targets[0].Name == "*") {
 					if len(cols) != len(targets) {
-						return nil, true, fmt.Errorf("output expression: "+
+						return nil, false, fmt.Errorf("output expression: "+
 							"number of cols = %d but number of targets = %d",
 							len(cols), len(targets))
 					}
@@ -462,7 +451,7 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 				// and regular columns.
 				if targets[0].Prefix != "M" && len(cols) > 1 &&
 					starCount(cols) >= 1 {
-					return nil, true, fmt.Errorf("output expression: " +
+					return nil, false, fmt.Errorf("output expression: " +
 						"cannot mix asterisk and explicit columns")
 				}
 				p.skipSpaces()
@@ -482,36 +471,33 @@ func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 
 	if p.skipByte('$') {
 		if fn, ok, err := p.parseGoObject(); ok {
-			if err != nil {
-				return nil, true, fmt.Errorf("input expression: %s", err)
-			}
 			p.skipSpaces()
 			return &InputPart{fn}, true, nil
+		} else if err != nil {
+			return nil, false, fmt.Errorf("input expression: %s", err)
 		}
 	}
 	cp.restore()
 	return nil, false, nil
 }
 
-// parseInputExpression parses an DSL input go-defined type to be used as a
-// query argument.
+// parseStringLiteral parses quoted expressions and ignores their content.
 func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 	cp := p.save()
-
-	var err error
 
 	if p.pos < len(p.input) {
 		c := p.input[p.pos]
 		if c == '"' || c == '\'' {
 			p.skipByte(c)
+			// TODO Handle escaping
 			if !p.skipByteFind(c) {
 				// Reached end of string and didn't find the closing quote
-				err = fmt.Errorf("missing right quote in string literal")
+				return nil, false, fmt.Errorf("missing right quote in string literal")
 			}
-			return &BypassPart{p.input[cp.pos:p.pos]}, true, err
+			return &BypassPart{p.input[cp.pos:p.pos]}, true, nil
 		}
 	}
 
 	cp.restore()
-	return nil, false, err
+	return nil, false, nil
 }
