@@ -34,67 +34,67 @@ func TestRound(t *testing.T) {
 		expectedParsed string
 	}{
 		{
-			"simple select",
-			"select p.* as &Person.*",
-			"ParsedExpr[BypassPart[select] OutputPart[Source:[p.*] Target:[Person.*]]]",
+			"simple SELECT",
+			"SELECT p.* AS &Person.*",
+			"ParsedExpr[BypassPart[SELECT] OutputPart[Source:[p.*] Target:[Person.*]]]",
 		},
 		{
 			"quoted output expr",
-			"select p.* as &Person.*, '&notAnOutputExpresion.*' as literal from t",
-			"ParsedExpr[BypassPart[select] " +
+			"SELECT p.* AS &Person.*, '&notAnOutputExpresion.*' AS literal FROM t",
+			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[, ] " +
 				"BypassPart['&notAnOutputExpresion.*'] " +
-				"BypassPart[ as literal from t]]",
+				"BypassPart[ AS literal FROM t]]",
 		},
 		{
 			"output",
-			"select * as &Person.* from t",
-			"ParsedExpr[BypassPart[select] " +
+			"SELECT * AS &Person.* FROM t",
+			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[*] Target:[Person.*]] " +
-				"BypassPart[from t]]",
+				"BypassPart[FROM t]]",
 		},
 		{
 			"input",
-			"select foo, bar from table where foo = $Person.id",
-			"ParsedExpr[BypassPart[select foo, bar from table where foo =] " +
+			"SELECT foo, bar FROM table WHERE foo = $Person.id",
+			"ParsedExpr[BypassPart[SELECT foo, bar FROM table WHERE foo = ] " +
 				"InputPart[Person.id]]",
 		},
 		{
 			"input and output",
-			"select &Person.* from table where foo = $Address.id",
-			"ParsedExpr[BypassPart[select] OutputPart[Source:[] Target:[Person.*]] " +
-				"BypassPart[from table where foo =] " +
+			"SELECT &Person.* FROM table WHERE foo = $Address.id",
+			"ParsedExpr[BypassPart[SELECT] OutputPart[Source:[] Target:[Person.*]] " +
+				"BypassPart[FROM table WHERE foo = ] " +
 				"InputPart[Address.id]]",
 		},
 		{
 			"input and star output",
-			"select &Person.* from table where foo = $Address.id",
-			"ParsedExpr[BypassPart[select] " +
+			"SELECT &Person.* FROM table WHERE foo = $Address.id",
+			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[] Target:[Person.*]] " +
-				"BypassPart[from table where foo =] " +
+				"BypassPart[FROM table WHERE foo = ] " +
 				"InputPart[Address.id]]",
 		},
 		{
 			"output and quote",
-			"select foo, bar, &Person.id from table where foo = 'xx'",
-			"ParsedExpr[BypassPart[select foo, bar,] " +
+			"SELECT foo, bar, &Person.id FROM table WHERE foo = 'xx'",
+			"ParsedExpr[BypassPart[SELECT foo, bar,] " +
 				"OutputPart[Source:[] Target:[Person.id]] " +
-				"BypassPart[from table where foo = ] " +
+				"BypassPart[FROM table WHERE foo = ] " +
 				"BypassPart['xx']]",
 		},
 		{
 			"two outputs and quote",
-			"select foo, &Person.id, bar, baz, &Manager.name from table where foo = 'xx'",
-			"ParsedExpr[BypassPart[select foo,] " +
+			"SELECT foo, &Person.id, bar, baz, &Manager.name FROM table WHERE foo = 'xx'",
+			"ParsedExpr[BypassPart[SELECT foo,] " +
 				"OutputPart[Source:[] Target:[Person.id]] " +
 				"BypassPart[, bar, baz,] " +
 				"OutputPart[Source:[] Target:[Manager.name]] " +
-				"BypassPart[from table where foo = ] " +
+				"BypassPart[FROM table WHERE foo = ] " +
 				"BypassPart['xx']]",
 		},
 		{
-			"star as output and quote",
+			"star AS output and quote",
 			"SELECT * AS &Person.* FROM person WHERE name = 'Fred'",
 			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[*] Target:[Person.*]] " +
@@ -110,8 +110,8 @@ func TestRound(t *testing.T) {
 				"BypassPart['Fred']]",
 		},
 		{
-			"two star as output and quote",
-			"SELECT * AS &Person.*, a.* as &Address.* FROM person, address a WHERE name = 'Fred'",
+			"two star AS output and quote",
+			"SELECT * AS &Person.*, a.* AS &Address.* FROM person, address a WHERE name = 'Fred'",
 			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[*] Target:[Person.*]] " +
 				"BypassPart[,] " +
@@ -160,13 +160,13 @@ func TestRound(t *testing.T) {
 		{
 			"complex query",
 			"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.*, " +
-				"(5+7), (col1 * col2) as calculated_value FROM person AS p " +
+				"(5+7), (col1 * col2) AS calculated_value FROM person AS p " +
 				"JOIN address AS a ON p.address_id = a.id WHERE p.name = 'Fred'",
 			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[,] " +
 				"OutputPart[Source:[a.district a.street] Target:[Address.*]] " +
-				"BypassPart[, (5+7), (col1 * col2) as calculated_value FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name = ] " +
+				"BypassPart[, (5+7), (col1 * col2) AS calculated_value FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name = ] " +
 				"BypassPart['Fred']]",
 		},
 		{
@@ -185,32 +185,32 @@ func TestRound(t *testing.T) {
 			"complex query v3",
 			"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
 				"FROM person AS p JOIN address AS a ON p.address_id = a.id " +
-				"WHERE p.name in (select name from table where table.n = $Person.name)",
+				"WHERE p.name IN (SELECT name FROM table WHERE table.n = $Person.name)",
 			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[,] " +
 				"OutputPart[Source:[a.district a.street] Target:[Address.*]] " +
-				"BypassPart[FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name in (select name from table where table.n =] " +
+				"BypassPart[FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name IN (SELECT name FROM table WHERE table.n = ] " +
 				"InputPart[Person.name] " +
 				"BypassPart[)]]",
 		},
 		{
 			"complex query v4",
 			"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
-				"FROM person WHERE p.name in (select name from table " +
-				"where table.n = $Person.name) UNION " +
+				"FROM person WHERE p.name IN (SELECT name FROM table " +
+				"WHERE table.n = $Person.name) UNION " +
 				"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
-				"FROM person WHERE p.name in " +
-				"(select name from table where table.n = $Person.name)",
+				"FROM person WHERE p.name IN " +
+				"(SELECT name FROM table WHERE table.n = $Person.name)",
 			"ParsedExpr[BypassPart[SELECT] OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[,] OutputPart[Source:[a.district a.street] Target:[Address.*]] " +
-				"BypassPart[FROM person WHERE p.name in (select name from table where table.n =] " +
+				"BypassPart[FROM person WHERE p.name IN (SELECT name FROM table WHERE table.n = ] " +
 				"InputPart[Person.name] " +
 				"BypassPart[) UNION SELECT] " +
 				"OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[,] " +
 				"OutputPart[Source:[a.district a.street] Target:[Address.*]] " +
-				"BypassPart[FROM person WHERE p.name in (select name from table where table.n =] " +
+				"BypassPart[FROM person WHERE p.name IN (SELECT name FROM table WHERE table.n = ] " +
 				"InputPart[Person.name] " +
 				"BypassPart[)]]",
 		},
@@ -236,7 +236,7 @@ func TestRound(t *testing.T) {
 		{
 			"simple input v2",
 			"SELECT p FROM person WHERE p.name = $Person.name",
-			"ParsedExpr[BypassPart[SELECT p FROM person WHERE p.name =] InputPart[Person.name]]",
+			"ParsedExpr[BypassPart[SELECT p FROM person WHERE p.name = ] InputPart[Person.name]]",
 		},
 		{
 			"complex query v5 with empty struct",
@@ -247,9 +247,9 @@ func TestRound(t *testing.T) {
 				"OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[,] " +
 				"OutputPart[Source:[a.district] Target:[District.*]] " +
-				"BypassPart[FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name =] " +
+				"BypassPart[FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name = ] " +
 				"InputPart[Person.name] " +
-				"BypassPart[AND p.address_id =] " +
+				"BypassPart[ AND p.address_id = ] " +
 				"InputPart[Person.address_id]]",
 		},
 		{
@@ -262,11 +262,11 @@ func TestRound(t *testing.T) {
 				"OutputPart[Source:[p.*] Target:[Person.*]] " +
 				"BypassPart[,] " +
 				"OutputPart[Source:[a.district] Target:[District.*]] " +
-				"BypassPart[FROM person AS p INNER JOIN address AS a ON p.address_id =] " +
+				"BypassPart[FROM person AS p INNER JOIN address AS a ON p.address_id = ] " +
 				"InputPart[Address.id] " +
-				"BypassPart[WHERE p.name =] " +
+				"BypassPart[ WHERE p.name = ] " +
 				"InputPart[Person.name] " +
-				"BypassPart[AND p.address_id =] " +
+				"BypassPart[ AND p.address_id = ] " +
 				"InputPart[Person.address_id]]",
 		},
 		{
@@ -274,7 +274,7 @@ func TestRound(t *testing.T) {
 			"SELECT p.*, a.district " +
 				"FROM person AS p JOIN address AS a ON p.address_id = a.id " +
 				"WHERE p.name = $Person.name",
-			"ParsedExpr[BypassPart[SELECT p.*, a.district FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name =] " +
+			"ParsedExpr[BypassPart[SELECT p.*, a.district FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name = ] " +
 				"InputPart[Person.name]]",
 		},
 		{
@@ -319,22 +319,22 @@ func TestRound(t *testing.T) {
 		{
 			"insert",
 			"INSERT INTO person (name) VALUES $Person.name",
-			"ParsedExpr[BypassPart[INSERT INTO person (name) VALUES] " +
+			"ParsedExpr[BypassPart[INSERT INTO person (name) VALUES ] " +
 				"InputPart[Person.name]]",
 		},
 		{
 			"insert v2",
 			"INSERT INTO person VALUES $Person.*",
-			"ParsedExpr[BypassPart[INSERT INTO person VALUES] " +
+			"ParsedExpr[BypassPart[INSERT INTO person VALUES ] " +
 				"InputPart[Person.*]]",
 		},
 		{
 			"update",
 			"UPDATE person SET person.address_id = $Address.id " +
 				"WHERE person.id = $Person.id",
-			"ParsedExpr[BypassPart[UPDATE person SET person.address_id =] " +
+			"ParsedExpr[BypassPart[UPDATE person SET person.address_id = ] " +
 				"InputPart[Address.id] " +
-				"BypassPart[WHERE person.id =] " +
+				"BypassPart[ WHERE person.id = ] " +
 				"InputPart[Person.id]]",
 		},
 	}
@@ -344,9 +344,9 @@ func TestRound(t *testing.T) {
 		var parsedExpr *parse.ParsedExpr
 		var err error
 		if parsedExpr, err = parser.Parse(test.input); err != nil {
-			t.Errorf("test %d failed (Parse): name %s\ninput: %s\nexpected: %s\nerr: %s\n", i, test.name, test.input, test.expectedParsed, err)
+			t.Errorf("test %d failed (Parse): name: %s\ninput: %s\nexpected: %s\nerr: %s\n", i, test.name, test.input, test.expectedParsed, err)
 		} else if parsedExpr.String() != test.expectedParsed {
-			t.Errorf("test %d failed (Parse): name %s\ninput: %s\nexpected: %s\nactual:   %s\n", i, test.name, test.input, test.expectedParsed, parsedExpr.String())
+			t.Errorf("test %d failed (Parse): name: %s\ninput: %s\nexpected: %s\nactual:   %s\n", i, test.name, test.input, test.expectedParsed, parsedExpr.String())
 		}
 	}
 }

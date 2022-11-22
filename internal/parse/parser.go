@@ -140,13 +140,15 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 			return nil, err
 		} else if ok {
 			p.add(ip)
+		}
 
-		} else if sp, ok, err := p.parseStringLiteral(); err != nil {
+		if sp, ok, err := p.parseStringLiteral(); err != nil {
 			return nil, err
 		} else if ok {
 			p.add(sp)
+		}
 
-		} else if p.pos == len(p.input) {
+		if p.pos == len(p.input) {
 			break
 		} else {
 			// If nothing above can be parsed we advance the parser.
@@ -466,12 +468,9 @@ func (p *Parser) parseOutputExpression() (*OutputPart, bool, error) {
 // parseInputExpression parses an input expression of the form $Type.name.
 func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
 	cp := p.save()
-	// Skip spaces to enforce correct spacing around IO
-	p.skipSpaces()
 
 	if p.skipByte('$') {
 		if fn, ok, err := p.parseGoObject(); ok {
-			p.skipSpaces()
 			return &InputPart{fn}, true, nil
 		} else if err != nil {
 			return nil, false, fmt.Errorf("input expression: %s", err)
