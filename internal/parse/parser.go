@@ -14,7 +14,7 @@ type Parser struct {
 	// partStart is the value of pos just before we started parsing the part
 	// under pos. We maintain partStart >= prevPart.
 	partStart int
-	parts     []queryPart
+	parts     []QueryPart
 }
 
 func NewParser() *Parser {
@@ -27,7 +27,7 @@ func (p *Parser) init(input string) {
 	p.pos = 0
 	p.prevPart = 0
 	p.partStart = 0
-	p.parts = []queryPart{}
+	p.parts = []QueryPart{}
 }
 
 // A checkpoint struct for saving parser state to restore later. We only use
@@ -38,7 +38,7 @@ type checkpoint struct {
 	pos       int
 	prevPart  int
 	partStart int
-	parts     []queryPart
+	parts     []QueryPart
 }
 
 // save takes a snapshot of the state of the parser and returns a pointer to a
@@ -70,7 +70,7 @@ const (
 )
 
 // ParsedExpr is the AST representation of an SQL expression.
-// It has a representation of the original SQL statement in terms of queryParts
+// It has a representation of the original SQL statement in terms of QueryParts
 // A SQL statement like this:
 //
 // Select p.* as &Person.* from person where p.name = $Boss.Name
@@ -79,7 +79,7 @@ const (
 //
 // [BypassPart OutputPart BypassPart InputPart]
 type ParsedExpr struct {
-	queryParts []queryPart
+	QueryParts []QueryPart
 }
 
 // String returns a textual representation of the AST contained in the
@@ -87,7 +87,7 @@ type ParsedExpr struct {
 func (pe *ParsedExpr) String() string {
 	var out bytes.Buffer
 	out.WriteString("ParsedExpr[")
-	for i, p := range pe.queryParts {
+	for i, p := range pe.QueryParts {
 		if i > 0 {
 			out.WriteString(" ")
 		}
@@ -100,7 +100,7 @@ func (pe *ParsedExpr) String() string {
 // add pushes the parsed part to the parsedExprBuilder along with the BypassPart
 // that stretches from the end of the previous part to the beginning of this
 // part.
-func (p *Parser) add(part queryPart) {
+func (p *Parser) add(part QueryPart) {
 	// Add the string between the previous I/O part and the current part.
 	if p.prevPart != p.partStart {
 		p.parts = append(p.parts,
@@ -135,8 +135,9 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 			return nil, err
 		} else if ok {
 			p.add(op)
+		}
 
-		} else if ip, ok, err := p.parseInputExpression(); err != nil {
+		if ip, ok, err := p.parseInputExpression(); err != nil {
 			return nil, err
 		} else if ok {
 			p.add(ip)
@@ -151,13 +152,36 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 		if p.pos == len(p.input) {
 			break
 		} else {
-			// If nothing above can be parsed we advance the parser.
-			p.pos++
+			p.advance()
 		}
 	}
 	// Add any remaining unparsed string input to the parser.
 	p.add(nil)
 	return &ParsedExpr{p.parts}, nil
+}
+
+// advance increments pos until we reach the start of a name, a $, a " or a '.
+func (p *Parser) advance() {
+	noteableBytes := map[byte]bool{
+		'$':  true,
+		'"':  true,
+		'\'': true,
+		' ':  true,
+	}
+	p.skipSpaces()
+	for p.pos < len(p.input) && !noteableBytes[p.input[p.pos]] {
+		p.pos++
+	}
+	return
+}
+
+func in(y byte, xs []byte) bool {
+	for _, x := range xs {
+		if x == y {
+			return true
+		}
+	}
+	return false
 }
 
 // peekByte returns true if the current byte equals the one passed as parameter.
@@ -486,14 +510,15 @@ func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 
 	if p.pos < len(p.input) {
 		c := p.input[p.pos]
-		if c == '"' || c == '\'' {
+		if (c == '"' || c == '\'') && (p.pos == 0 || p.input[p.pos-1] != '\\') {
 			p.skipByte(c)
-			// TODO Handle escaping
-			if !p.skipByteFind(c) {
-				// Reached end of string and didn't find the closing quote
-				return nil, false, fmt.Errorf("missing right quote in string literal")
+			for p.skipByteFind(c) {
+				if p.input[p.pos-2] != '\\' {
+					return &BypassPart{p.input[cp.pos:p.pos]}, true, nil
+				}
 			}
-			return &BypassPart{p.input[cp.pos:p.pos]}, true, nil
+			// Reached end of string and didn't find the closing quote
+			return nil, false, fmt.Errorf("missing right quote in string literal")
 		}
 	}
 

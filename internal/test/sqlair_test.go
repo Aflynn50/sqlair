@@ -317,6 +317,23 @@ func TestRound(t *testing.T) {
 			"ParsedExpr[BypassPart[SELECT dollerrow$ FROM moneytable]]",
 		},
 		{
+			"test escaped quotes",
+			"SELECT foo FROM t WHERE t.p = \"Jimmy \\\"Quickfingers\\\" Jones\"",
+			"ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] " +
+				"BypassPart[\"Jimmy \\\"Quickfingers\\\" Jones\"]]",
+		},
+		{
+			"test escaped quotes v2",
+			"SELECT foo FROM t WHERE t.p = 'Olly O\\'Flanagan'",
+			"ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] " +
+				"BypassPart['Olly O\\'Flanagan']]",
+		},
+		{
+			"test escaped quotes v3",
+			"\\\"\"\\\"\"",
+			"ParsedExpr[BypassPart[\\\"] BypassPart[\"\\\"\"]]",
+		},
+		{
 			"insert",
 			"INSERT INTO person (name) VALUES $Person.name",
 			"ParsedExpr[BypassPart[INSERT INTO person (name) VALUES ] " +
