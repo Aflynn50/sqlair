@@ -34,7 +34,7 @@ func TestRound(t *testing.T) {
 		expectedParsed string
 	}{
 		{
-			"simple SELECT",
+			"simple select",
 			"SELECT p.* AS &Person.*",
 			"ParsedExpr[BypassPart[SELECT] OutputPart[Source:[p.*] Target:[Person.*]]]",
 		},
@@ -94,7 +94,7 @@ func TestRound(t *testing.T) {
 				"BypassPart['xx']]",
 		},
 		{
-			"star AS output and quote",
+			"star as output and quote",
 			"SELECT * AS &Person.* FROM person WHERE name = 'Fred'",
 			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[*] Target:[Person.*]] " +
@@ -110,7 +110,7 @@ func TestRound(t *testing.T) {
 				"BypassPart['Fred']]",
 		},
 		{
-			"two star AS output and quote",
+			"two star as output and quote",
 			"SELECT * AS &Person.*, a.* AS &Address.* FROM person, address a WHERE name = 'Fred'",
 			"ParsedExpr[BypassPart[SELECT] " +
 				"OutputPart[Source:[*] Target:[Person.*]] " +
