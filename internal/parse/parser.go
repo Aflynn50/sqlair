@@ -6,6 +6,7 @@ import (
 	"strings"
 )
 
+// Parser keeps track of the current parsing state.
 type Parser struct {
 	input string
 	pos   int
@@ -73,7 +74,7 @@ const (
 // It has a representation of the original SQL statement in terms of QueryParts
 // A SQL statement like this:
 //
-// Select p.* as &Person.* from person where p.name = $Boss.Name
+// Select p.* as &Person.* from person where p.name = $Boss.col_name
 //
 // would be represented as:
 //
@@ -157,7 +158,6 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 			break
 		} else if !parsed {
 			p.advance()
-			//p.pos++
 		}
 	}
 	// Add any remaining unparsed string input to the parser.
@@ -166,7 +166,7 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 }
 
 // advance increments p.pos until we reach a space, a $, a " or a '. If we find
-// a space we advance to the last adjecent space so the p.pos points to the last
+// a space we advance to the last adjacent space so the p.pos points to the last
 // space before the next non-space character.
 func (p *Parser) advance() {
 	noteableBytes := map[byte]bool{
@@ -192,7 +192,7 @@ func (p *Parser) peekByte(b byte) bool {
 	return p.pos < len(p.input) && p.input[p.pos] == b
 }
 
-// Functions with the prefix skip always return a single bool. If they return
+// Functions with the prefix 'skip' always return a single bool. If they return
 // false the parser state is unchanged. If they return true they move p.pos to
 // the char after the pattern they have skipped.
 
@@ -253,29 +253,29 @@ func isNameByte(c byte) bool {
 		'0' <= c && c <= '9' || c == '_'
 }
 
-// skipName returns false if the parser is not on a name. Otherwise it advances
-// the parser until it is on the first non name byte and returns true.
+// skipName advances the parser until it is on the first non name byte and
+// returns true. If the p.pos does not start on a name byte it returns false.
 func (p *Parser) skipName() bool {
 	if p.pos >= len(p.input) {
 		return false
 	}
-	start := p.pos
+	mark := p.pos
 	for p.pos < len(p.input) && isNameByte(p.input[p.pos]) {
 		p.pos++
 	}
-	return p.pos > start
+	return p.pos > mark
 }
 
-// Functions with the prefix parse attempt to parse some construct. They return
-// the construct, a 'ok' bool and optionally an an error.
+// Functions with the prefix 'parse' attempt to parse some construct. They return
+// the construct, a 'ok' bool and optionally an error.
 //
 // Return cases:
-//  - bool == true, err == nil
-//		The construct was sucessfully parsed.
+//  - bool == true (err == nil)
+//		The construct was successfully parsed.
+//  - bool == false (err == nil)
+//		The construct was not the one we are looking for.
 //  - bool == false, err != nil
 //		The construct was recognised but was not correctly formatted.
-//  - bool == false, err == nil
-//		The construct was not the one we are looking for.
 
 // parseIdentifier parses either a name made up only of nameBytes or an
 // asterisk.
@@ -317,8 +317,8 @@ func (p *Parser) parseColumn() (FullName, bool) {
 // where the type is the Prefix and the field is the Name (this applies to maps
 // and structs).
 func (p *Parser) parseGoObject() (FullName, bool, error) {
-	var fn FullName
 	cp := p.save()
+	var fn FullName
 	if id, ok := p.parseIdentifier(disallowStar); ok {
 		if p.skipByte('.') {
 			if idField, ok := p.parseIdentifier(allowStar); ok {
@@ -338,16 +338,16 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 // there is more than one column then the columns must be enclosed in brackets
 // e.g.  "(col1, col2) AS &Person.*".
 func (p *Parser) parseColumns() ([]FullName, bool) {
-	var cols []FullName
 	cp := p.save()
-	// We skip a spaces here to keep consitant with parseTargets which also
+	var cols []FullName
+	// We skip a space here to keep consistent with parseTargets which also
 	// consumes one space before the start of the expression.
 	p.skipByte(' ')
-	// Case 1: A single column.
+	// Case 1: A single column e.g. p.name
 	if col, ok := p.parseColumn(); ok {
 		return []FullName{col}, true
 	} else if p.skipByte('(') {
-		// Case 2: Multiple columns.
+		// Case 2: Multiple columns e.g. (p.name, p.id, q.*)
 		if col, ok := p.parseColumn(); ok {
 			cols = append(cols, col)
 			p.skipSpaces()
@@ -371,20 +371,22 @@ func (p *Parser) parseColumns() ([]FullName, bool) {
 }
 
 // parseTargets parses the part of the output expression following the
-// ampersand. This can be one or more go object. If the ampersand is not found
+// ampersand. This can be one or more Go objects. If the ampersand is not found
 // or is not preceded by a space and succeeded by a name or opening bracket the
 // targets are not parsed.
 func (p *Parser) parseTargets() ([]FullName, bool, error) {
-	var targets []FullName
 	cp := p.save()
+	var targets []FullName
 
 	// An '&' must be preceded by a space and succeeded by a name or opening
 	// bracket.
 	if p.skipString(" &") {
+		// Case 1: A single target e.g. &Person.name
 		if target, ok, err := p.parseGoObject(); ok {
 			return []FullName{target}, true, nil
 		} else if err != nil {
 			return targets, false, err
+			// Case 2: Multiple targets e.g. &(Person.name, Person.id)
 		} else if p.skipByte('(') {
 			if target, ok, err := p.parseGoObject(); ok {
 				targets = append(targets, target)
@@ -434,7 +436,7 @@ func starCount(fns []FullName) int {
 }
 
 // parseOutputExpression parses all output expressions. The ampersand must be
-// precceeded by a space and followed by a name byte.
+// preceded by a space and followed by a name byte.
 func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 	cp := p.save()
 	var cols []FullName
@@ -442,8 +444,6 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 
 	// Case 1: simple case with no columns e.g. &Person.*
 	if targets, ok, err = p.parseTargets(); ok {
-		// Enforce correct spaceing around output expression.
-		p.skipSpaces()
 		return &OutputPart{cols, targets}, true, nil
 	} else if err != nil {
 		return nil, false, fmt.Errorf("output expression: %s", err)
@@ -469,8 +469,6 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 					return nil, false, fmt.Errorf("output expression: " +
 						"cannot mix asterisk and explicit columns")
 				}
-				// Enforce correct spacing around output expression
-				p.skipSpaces()
 				return &OutputPart{cols, targets}, true, nil
 			}
 			if err != nil {
@@ -513,7 +511,7 @@ func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 				}
 			}
 			// Reached end of string and didn't find the closing quote
-			return nil, false, fmt.Errorf("missing right quote in string literal")
+			return nil, false, fmt.Errorf("missing right quote of char %d in string literal", cp.pos)
 		}
 	}
 

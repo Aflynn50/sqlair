@@ -13,14 +13,14 @@ func TestUnfinishedStringLiteral(t *testing.T) {
 	sql := "SELECT foo FROM t WHERE x = 'dddd"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote of char 28 in string literal"), err)
 }
 
 func TestUnfinishedStringLiteralV2(t *testing.T) {
 	sql := "SELECT foo FROM t WHERE x = \"dddd"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote of char 28 in string literal"), err)
 }
 
 // We require to end the string literal with the proper quote depending
@@ -29,7 +29,7 @@ func TestUnfinishedStringLiteralV3(t *testing.T) {
 	sql := "SELECT foo FROM t WHERE x = \"dddd'"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote of char 28 in string literal"), err)
 }
 
 // Properly parsing empty string literal
@@ -45,7 +45,7 @@ func TestBadEscaped(t *testing.T) {
 	sql := "SELECT foo FROM t WHERE x = 'O'Donnell'"
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
-	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote in string literal"), err)
+	assert.Equal(t, fmt.Errorf("cannot parse expression: missing right quote of char 38 in string literal"), err)
 }
 
 // Detect bad input expressions
