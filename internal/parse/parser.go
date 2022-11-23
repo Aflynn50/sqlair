@@ -438,6 +438,11 @@ func starCount(fns []FullName) int {
 // parseOutputExpression parses all output expressions. The ampersand must be
 // preceded by a space and followed by a name byte.
 func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("output expression: %s", err)
+		}
+	}()
 	cp := p.save()
 	var cols []FullName
 	var targets []FullName
@@ -446,7 +451,7 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 	if targets, ok, err = p.parseTargets(); ok {
 		return &OutputPart{cols, targets}, true, nil
 	} else if err != nil {
-		return nil, false, fmt.Errorf("output expression: %s", err)
+		return nil, false, err
 	} else if cols, ok = p.parseColumns(); ok {
 		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
 		p.skipSpaces()
@@ -456,9 +461,8 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 				// and targets.
 				if !(len(targets) == 1 && targets[0].Name == "*") {
 					if len(cols) != len(targets) {
-						return nil, false, fmt.Errorf("output expression: "+
-							"number of cols = %d but number of targets = %d",
-							len(cols), len(targets))
+						return nil, false, fmt.Errorf("number of cols = %d "+
+							"but number of targets = %d", len(cols), len(targets))
 					}
 				}
 
@@ -466,14 +470,14 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 				// and regular columns.
 				if targets[0].Prefix != "M" && len(cols) > 1 &&
 					starCount(cols) >= 1 {
-					return nil, false, fmt.Errorf("output expression: " +
-						"cannot mix asterisk and explicit columns")
+					return nil, false, fmt.Errorf("cannot mix asterisk " +
+						"and explicit columns")
 				}
+
 				return &OutputPart{cols, targets}, true, nil
 			}
 			if err != nil {
-				return nil, false, fmt.Errorf("output expression: %s",
-					err)
+				return nil, false, err
 			}
 		}
 	}
@@ -482,14 +486,23 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 }
 
 // parseInputExpression parses an input expression of the form $Type.name.
-func (p *Parser) parseInputExpression() (*InputPart, bool, error) {
+func (p *Parser) parseInputExpression() (ip *InputPart, ok bool, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("input expression: %s", err)
+		}
+	}()
 	cp := p.save()
 
 	if p.skipByte('$') {
-		if fn, ok, err := p.parseGoObject(); ok {
+		var fn FullName
+		if fn, ok, err = p.parseGoObject(); ok {
+			if fn.Name == "*" {
+				return nil, false, fmt.Errorf("star not allowed")
+			}
 			return &InputPart{fn}, true, nil
 		} else if err != nil {
-			return nil, false, fmt.Errorf("input expression: %s", err)
+			return nil, false, err
 		}
 	}
 	cp.restore()

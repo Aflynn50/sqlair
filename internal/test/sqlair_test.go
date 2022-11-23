@@ -340,12 +340,6 @@ func TestRound(t *testing.T) {
 				"InputPart[Person.name]]",
 		},
 		{
-			"insert v2",
-			"INSERT INTO person VALUES $Person.*",
-			"ParsedExpr[BypassPart[INSERT INTO person VALUES ] " +
-				"InputPart[Person.*]]",
-		},
-		{
 			"update",
 			"UPDATE person SET person.address_id = $Address.id " +
 				"WHERE person.id = $Person.id",
