@@ -128,37 +128,36 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 		}
 	}()
 	p.init(input)
-	var parsed bool
 	for {
 		p.partStart = p.pos
-		parsed = false
 
 		if op, ok, err := p.parseOutputExpression(); err != nil {
 			return nil, err
 		} else if ok {
 			p.add(op)
-			parsed = true
+			continue
 		}
 
 		if ip, ok, err := p.parseInputExpression(); err != nil {
 			return nil, err
 		} else if ok {
 			p.add(ip)
-			parsed = true
+			continue
 		}
 
 		if sp, ok, err := p.parseStringLiteral(); err != nil {
 			return nil, err
 		} else if ok {
 			p.add(sp)
-			parsed = true
+			continue
 		}
 
 		if p.pos == len(p.input) {
 			break
-		} else if !parsed {
-			p.advance()
 		}
+
+		// If nothing above can be parsed we advance the parser.
+		p.advance()
 	}
 	// Add any remaining unparsed string input to the parser.
 	p.add(nil)
@@ -247,7 +246,7 @@ func (p *Parser) skipString(s string) bool {
 }
 
 // isNameByte returns true if the byte passed as parameter is considered to be
-// one that can be part of a name. It returns false otherwise
+// one that can be part of a name. It returns false otherwise.
 func isNameByte(c byte) bool {
 	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' ||
 		'0' <= c && c <= '9' || c == '_'
