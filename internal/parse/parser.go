@@ -293,7 +293,8 @@ func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 }
 
 // parseColumn parses a column made up of name bytes, optionally dot-prefixed by
-// its table name.
+// its table name. parseColumn returns an error so that it can be used with
+// parseList.
 func (p *Parser) parseColumn() (FullName, bool, error) {
 	cp := p.save()
 	var fn FullName
@@ -323,19 +324,23 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 			if idField, ok := p.parseIdentifier(allowStar); ok {
 				return FullName{Prefix: id, Name: idField}, true, nil
 			} else {
-				return fn, false, fmt.Errorf("not a valid identifier for a go object field")
+				return fn, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 			}
 		} else {
-			return fn, false, fmt.Errorf("go objects need to be qualified")
+			return fn, false, fmt.Errorf("go object near char %d not qualified", p.pos)
 		}
 	}
 	cp.restore()
 	return fn, false, nil
 }
 
+// parseList takes a parsing function that returns a FullName and parses a
+// bracketed, comma seperated, list of them.
 func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
+	cp := p.save()
 	var objs []FullName
 	if p.skipByte('(') {
+		parenPos := p.pos
 		if obj, ok, err := parseFn(p); ok {
 			objs = append(objs, obj)
 			p.skipSpaces()
@@ -347,19 +352,20 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 				} else if err != nil {
 					return objs, false, err
 				} else {
-					return objs, false, fmt.Errorf("not a valid identifier")
+					return objs, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 				}
 			}
 			if p.skipByte(')') {
 				return objs, true, nil
 			}
-			return objs, false, fmt.Errorf("expected closing parentheses")
+			return objs, false, fmt.Errorf("missing closing parentheses for char %d", parenPos)
 		} else if err != nil {
 			return objs, false, err
 		} else {
-			return objs, false, fmt.Errorf("not a valid identifier")
+			return objs, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 		}
 	}
+	cp.restore()
 	return objs, false, nil
 }
 
@@ -400,7 +406,7 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 			// Case 2: Multiple targets e.g. &(Person.name, Person.id)
 		} else if targets, ok, err := p.parseList((*Parser).parseGoObject); ok {
 			if starCount(targets) > 1 {
-				return targets, false, fmt.Errorf("more than one asterisk")
+				return targets, false, fmt.Errorf("more than one asterisk in expression near char %d", p.pos)
 			}
 			return targets, true, nil
 		} else if err != nil {
@@ -426,11 +432,6 @@ func starCount(fns []FullName) int {
 // parseOutputExpression parses all output expressions. The ampersand must be
 // preceded by a space and followed by a name byte.
 func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("output expression: %s", err)
-		}
-	}()
 	cp := p.save()
 	var cols []FullName
 	var targets []FullName
@@ -450,7 +451,8 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 				if !(len(targets) == 1 && targets[0].Name == "*") {
 					if len(cols) != len(targets) {
 						return nil, false, fmt.Errorf("number of cols = %d "+
-							"but number of targets = %d", len(cols), len(targets))
+							"but number of targets = %d in expression near %d",
+							len(cols), len(targets), p.pos)
 					}
 				}
 
@@ -458,8 +460,9 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 				// and regular columns.
 				if targets[0].Prefix != "M" && len(cols) > 1 &&
 					starCount(cols) >= 1 {
-					return nil, false, fmt.Errorf("cannot mix asterisk " +
-						"and explicit columns")
+					return nil, false, fmt.Errorf("cannot mix asterisk "+
+						"and explicit columns in expression near %d",
+						p.pos)
 				}
 
 				return &OutputPart{cols, targets}, true, nil
@@ -475,18 +478,14 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 
 // parseInputExpression parses an input expression of the form $Type.name.
 func (p *Parser) parseInputExpression() (ip *InputPart, ok bool, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("input expression: %s", err)
-		}
-	}()
 	cp := p.save()
 
 	if p.skipByte('$') {
 		var fn FullName
 		if fn, ok, err = p.parseGoObject(); ok {
 			if fn.Name == "*" {
-				return nil, false, fmt.Errorf("star not allowed")
+				return nil, false, fmt.Errorf("asterisk not allowed "+
+					"in expression near %d", p.pos)
 			}
 			return &InputPart{fn}, true, nil
 		} else if err != nil {
@@ -512,7 +511,7 @@ func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 				}
 			}
 			// Reached end of string and didn't find the closing quote
-			return nil, false, fmt.Errorf("missing right quote of char %d in string literal", cp.pos)
+			return nil, false, fmt.Errorf("missing right quote for char %d in string literal", cp.pos)
 		}
 	}
 
