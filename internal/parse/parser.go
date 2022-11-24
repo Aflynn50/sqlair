@@ -165,8 +165,8 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 }
 
 // advance increments p.pos until we reach a space, a $, a " or a '. If we find
-// a space we advance to the last adjacent space so the p.pos points to the last
-// space before the next non-space character.
+// a space we advance to the rightmost adjacent space so the p.pos points to the
+// last space before the next non-space character.
 func (p *Parser) advance() {
 	noteableBytes := map[byte]bool{
 		'$':  true,
@@ -174,10 +174,13 @@ func (p *Parser) advance() {
 		'\'': true,
 		' ':  true,
 	}
+	// Advance the parser to the next char.
 	p.pos++
+	// Keep incrementing pos until we find a character of interest.
 	for p.pos < len(p.input) && !noteableBytes[p.input[p.pos]] {
 		p.pos++
 	}
+	// If we are on a space, advance to the rightmost in the sequence.
 	if p.peekByte(' ') {
 		for p.pos+1 < len(p.input) && p.input[p.pos+1] == ' ' {
 			p.pos++
@@ -252,6 +255,12 @@ func isNameByte(c byte) bool {
 		'0' <= c && c <= '9' || c == '_'
 }
 
+// isNameByte returns true if the byte passed as parameter is considered to be
+// one that can be part of a name. It returns false otherwise.
+func isInitialNameByte(c byte) bool {
+	return 'A' <= c && c <= 'Z' || 'a' <= c && c <= 'z' || c == '_'
+}
+
 // skipName advances the parser until it is on the first non name byte and
 // returns true. If the p.pos does not start on a name byte it returns false.
 func (p *Parser) skipName() bool {
@@ -259,8 +268,11 @@ func (p *Parser) skipName() bool {
 		return false
 	}
 	mark := p.pos
-	for p.pos < len(p.input) && isNameByte(p.input[p.pos]) {
+	if isInitialNameByte(p.input[p.pos]) {
 		p.pos++
+		for p.pos < len(p.input) && isNameByte(p.input[p.pos]) {
+			p.pos++
+		}
 	}
 	return p.pos > mark
 }
@@ -335,7 +347,7 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 }
 
 // parseList takes a parsing function that returns a FullName and parses a
-// bracketed, comma seperated, list of them.
+// bracketed, comma seperated, list.
 func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
 	cp := p.save()
 	var objs []FullName
