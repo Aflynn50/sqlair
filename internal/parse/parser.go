@@ -295,22 +295,22 @@ func (p *Parser) parseIdentifier(starF starFlag) (string, bool) {
 
 // parseColumn parses a column made up of name bytes, optionally dot-prefixed by
 // its table name.
-func (p *Parser) parseColumn() (FullName, bool) {
+func (p *Parser) parseColumn() (FullName, bool, error) {
 	cp := p.save()
 	var fn FullName
 	if id, ok := p.parseIdentifier(allowStar); ok {
 		if p.skipByte('.') {
 			if idCol, ok := p.parseIdentifier(allowStar); ok {
-				return FullName{Prefix: id, Name: idCol}, true
+				return FullName{Prefix: id, Name: idCol}, true, nil
 			}
 		} else {
 			// A column name specified without a table prefix should be in Name.
 			fn.Name = id
-			return fn, true
+			return fn, true, nil
 		}
 	}
 	cp.restore()
-	return fn, false
+	return fn, false, nil
 }
 
 // parseGoObject parses a source or target go object of the form Prefix.Name
@@ -334,40 +334,56 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 	return fn, false, nil
 }
 
+func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
+	var objs []FullName
+	if p.skipByte('(') {
+		if obj, ok, err := parseFn(p); ok {
+			objs = append(objs, obj)
+			p.skipSpaces()
+			for p.skipByte(',') {
+				p.skipSpaces()
+				if obj, ok, err := parseFn(p); ok {
+					objs = append(objs, obj)
+					p.skipSpaces()
+				} else if err != nil {
+					return objs, false, err
+				} else {
+					return objs, false, fmt.Errorf("not a valid identifier")
+				}
+			}
+			// TODO move to parseTargets
+			if starCount(objs) > 1 {
+				return objs, false, fmt.Errorf("more than one asterisk")
+			}
+			if p.skipByte(')') {
+				return objs, true, nil
+			}
+			return objs, false, fmt.Errorf("expected closing parentheses")
+		} else if err != nil {
+			return objs, false, err
+		} else {
+			return objs, false, fmt.Errorf("not a valid identifier")
+		}
+	}
+	return objs, false, nil
+}
+
 // parseColumns parses text in the SQL query of the form "table.colname". If
 // there is more than one column then the columns must be enclosed in brackets
 // e.g.  "(col1, col2) AS &Person.*".
 func (p *Parser) parseColumns() ([]FullName, bool) {
 	cp := p.save()
-	var cols []FullName
 	// We skip a space here to keep consistent with parseTargets which also
 	// consumes one space before the start of the expression.
 	p.skipByte(' ')
 	// Case 1: A single column e.g. p.name
-	if col, ok := p.parseColumn(); ok {
+	if col, ok, _ := p.parseColumn(); ok {
 		return []FullName{col}, true
-	} else if p.skipByte('(') {
-		// Case 2: Multiple columns e.g. (p.name, p.id, q.*)
-		if col, ok := p.parseColumn(); ok {
-			cols = append(cols, col)
-			p.skipSpaces()
-			for p.skipByte(',') {
-				p.skipSpaces()
-				if col, ok := p.parseColumn(); ok {
-					cols = append(cols, col)
-				} else {
-					cp.restore()
-					return cols, false
-				}
-				p.skipSpaces()
-			}
-			if p.skipByte(')') {
-				return cols, true
-			}
-		}
+	} else if cols, ok, _ := p.parseList((*Parser).parseColumn); ok {
+		return cols, true
 	}
 	cp.restore()
-	return cols, false
+	return []FullName{}, false
 }
 
 // parseTargets parses the part of the output expression following the
@@ -385,38 +401,15 @@ func (p *Parser) parseTargets() ([]FullName, bool, error) {
 		if target, ok, err := p.parseGoObject(); ok {
 			return []FullName{target}, true, nil
 		} else if err != nil {
-			return targets, false, err
+			return []FullName{}, false, err
 			// Case 2: Multiple targets e.g. &(Person.name, Person.id)
-		} else if p.skipByte('(') {
-			if target, ok, err := p.parseGoObject(); ok {
-				targets = append(targets, target)
-				p.skipSpaces()
-				for p.skipByte(',') {
-					p.skipSpaces()
-					if target, ok, err := p.parseGoObject(); ok {
-						targets = append(targets, target)
-						p.skipSpaces()
-					} else if err != nil {
-						return targets, false, err
-					} else {
-						return targets, false, fmt.Errorf("not a valid identifier " +
-							"for a go object field")
-					}
-				}
-
-				if starCount(targets) > 1 {
-					return targets, false, fmt.Errorf("more than one asterisk")
-				}
-				if p.skipByte(')') {
-					return targets, true, nil
-				}
-				return targets, false, fmt.Errorf("expected closing parentheses")
-			} else if err != nil {
-				return targets, false, err
-			} else {
-				return targets, false, fmt.Errorf("not a valid identifier " +
-					"for a go object field")
+		} else if targets, ok, err := p.parseList((*Parser).parseGoObject); ok {
+			if starCount(targets) > 1 {
+				return targets, false, fmt.Errorf("more than one asterisk")
 			}
+			return targets, true, nil
+		} else if err != nil {
+			return []FullName{}, false, err
 		}
 	}
 	cp.restore()
