@@ -355,10 +355,6 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 					return []FullName{}, false, fmt.Errorf("not a valid identifier")
 				}
 			}
-			// TODO move to parseTargets
-			if starCount(objs) > 1 {
-				return []FullName{}, false, fmt.Errorf("more than one asterisk")
-			}
 			if p.skipByte(')') {
 				return objs, true, nil
 			}
