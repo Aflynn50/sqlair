@@ -353,29 +353,25 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 	var objs []FullName
 	if p.skipByte('(') {
 		parenPos := p.pos
-		if obj, ok, err := parseFn(p); ok {
-			objs = append(objs, obj)
-			p.skipSpaces()
-			for p.skipByte(',') {
+		p.skipSpaces()
+		nextItem := true
+		for nextItem {
+			if obj, ok, err := parseFn(p); ok {
+				objs = append(objs, obj)
 				p.skipSpaces()
-				if obj, ok, err := parseFn(p); ok {
-					objs = append(objs, obj)
-					p.skipSpaces()
-				} else if err != nil {
-					return objs, false, err
-				} else {
-					return objs, false, fmt.Errorf("invalid identifier near char %d", p.pos)
-				}
+			} else if err != nil {
+				return objs, false, err
+			} else {
+				return objs, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 			}
+			p.skipSpaces()
 			if p.skipByte(')') {
 				return objs, true, nil
 			}
-			return objs, false, fmt.Errorf("missing closing parentheses for char %d", parenPos)
-		} else if err != nil {
-			return objs, false, err
-		} else {
-			return objs, false, fmt.Errorf("invalid identifier near char %d", p.pos)
+			nextItem = p.skipByte(',')
+			p.skipSpaces()
 		}
+		return objs, false, fmt.Errorf("missing closing parentheses for char %d", parenPos)
 	}
 	cp.restore()
 	return objs, false, nil
