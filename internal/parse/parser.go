@@ -335,12 +335,10 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 		if p.skipByte('.') {
 			if idField, ok := p.parseIdentifier(allowStar); ok {
 				return FullName{Prefix: id, Name: idField}, true, nil
-			} else {
-				return fn, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 			}
-		} else {
-			return fn, false, fmt.Errorf("go object near char %d not qualified", p.pos)
+			return fn, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 		}
+		return fn, false, fmt.Errorf("go object near char %d not qualified", p.pos)
 	}
 	cp.restore()
 	return fn, false, nil
