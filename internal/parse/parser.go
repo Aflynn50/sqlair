@@ -341,29 +341,23 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
 	var objs []FullName
 	if p.skipByte('(') {
-		if obj, ok, err := parseFn(p); ok {
-			objs = append(objs, obj)
-			p.skipSpaces()
-			for p.skipByte(',') {
+		more_items := true
+		for more_items {
+			if obj, ok, err := parseFn(p); ok {
+				objs = append(objs, obj)
 				p.skipSpaces()
-				if obj, ok, err := parseFn(p); ok {
-					objs = append(objs, obj)
-					p.skipSpaces()
-				} else if err != nil {
-					return []FullName{}, false, err
-				} else {
-					return []FullName{}, false, fmt.Errorf("not a valid identifier")
-				}
+			} else if err != nil {
+				return []FullName{}, false, err
+			} else {
+				return []FullName{}, false, fmt.Errorf("not a valid identifier")
 			}
-			if p.skipByte(')') {
-				return objs, true, nil
-			}
-			return objs, false, fmt.Errorf("expected closing parentheses")
-		} else if err != nil {
-			return []FullName{}, false, err
-		} else {
-			return []FullName{}, false, fmt.Errorf("not a valid identifier")
+			more_items = p.skipByte(',')
+			p.skipSpaces()
 		}
+		if p.skipByte(')') {
+			return objs, true, nil
+		}
+		return objs, false, fmt.Errorf("expected closing parentheses")
 	}
 	return objs, false, nil
 }
