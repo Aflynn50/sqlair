@@ -334,6 +334,10 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 	return fn, false, nil
 }
 
+// parseList parses a list of objects separated by ',' and enclosed in
+// parenthesis.
+// Returns an array of FullName objects, true and nil on success.
+// Returns an empty array, false and a proper error otherwise.
 func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
 	var objs []FullName
 	if p.skipByte('(') {
@@ -346,23 +350,23 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 					objs = append(objs, obj)
 					p.skipSpaces()
 				} else if err != nil {
-					return objs, false, err
+					return []FullName{}, false, err
 				} else {
-					return objs, false, fmt.Errorf("not a valid identifier")
+					return []FullName{}, false, fmt.Errorf("not a valid identifier")
 				}
 			}
 			// TODO move to parseTargets
 			if starCount(objs) > 1 {
-				return objs, false, fmt.Errorf("more than one asterisk")
+				return []FullName{}, false, fmt.Errorf("more than one asterisk")
 			}
 			if p.skipByte(')') {
 				return objs, true, nil
 			}
 			return objs, false, fmt.Errorf("expected closing parentheses")
 		} else if err != nil {
-			return objs, false, err
+			return []FullName{}, false, err
 		} else {
-			return objs, false, fmt.Errorf("not a valid identifier")
+			return []FullName{}, false, fmt.Errorf("not a valid identifier")
 		}
 	}
 	return objs, false, nil
