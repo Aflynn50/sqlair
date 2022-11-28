@@ -346,6 +346,8 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 
 // parseList takes a parsing function that returns a FullName and parses a
 // bracketed, comma seperated, list.
+// Returns an array of FullName objects, true and nil on success.
+// Returns an empty array, false and a proper error otherwise.
 func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
 	cp := p.save()
 	var objs []FullName
@@ -358,9 +360,9 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 				objs = append(objs, obj)
 				p.skipSpaces()
 			} else if err != nil {
-				return objs, false, err
+				return []FullName{}, false, err
 			} else {
-				return objs, false, fmt.Errorf("invalid identifier near char %d", p.pos)
+				return []FullName{}, false, fmt.Errorf("invalid identifier near char %d", p.pos)
 			}
 			p.skipSpaces()
 			if p.skipByte(')') {
@@ -369,7 +371,7 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 			nextItem = p.skipByte(',')
 			p.skipSpaces()
 		}
-		return objs, false, fmt.Errorf("missing closing parentheses for char %d", parenPos)
+		return []FullName{}, false, fmt.Errorf("missing closing parentheses for char %d", parenPos)
 	}
 	cp.restore()
 	return objs, false, nil
