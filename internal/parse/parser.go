@@ -131,25 +131,25 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 	for {
 		p.partStart = p.pos
 
-		if op, ok, err := p.parseOutputExpression(); err != nil {
-			return nil, err
-		} else if ok {
+		if op, ok, err := p.parseOutputExpression(); ok {
 			p.add(op)
 			continue
+		} else if err != nil {
+			return nil, err
 		}
 
-		if ip, ok, err := p.parseInputExpression(); err != nil {
-			return nil, err
-		} else if ok {
+		if ip, ok, err := p.parseInputExpression(); ok {
 			p.add(ip)
 			continue
+		} else if err != nil {
+			return nil, err
 		}
 
-		if sp, ok, err := p.parseStringLiteral(); err != nil {
-			return nil, err
-		} else if ok {
+		if sp, ok, err := p.parseStringLiteral(); ok {
 			p.add(sp)
 			continue
+		} else if err != nil {
+			return nil, err
 		}
 
 		if p.pos == len(p.input) {
