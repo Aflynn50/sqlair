@@ -439,31 +439,34 @@ func (p *Parser) parseOutputExpression() (op *OutputPart, ok bool, err error) {
 		return &OutputPart{cols, targets}, true, nil
 	} else if err != nil {
 		return nil, false, err
-	} else if cols, ok = p.parseColumns(); ok {
-		// Case 2: The expression contains an AS e.g. "p.col1 AS &Person.*".
+	}
+
+	if cols, ok = p.parseColumns(); ok {
+		// Case 2: The expression contains an AS
+		// e.g. "p.col1 AS &Person.*".
 		p.skipSpaces()
+		numCols := len(cols)
 		if p.skipString("AS") {
 			if targets, ok, err = p.parseTargets(); ok {
-				// If the target is not * then check there are equal columns
-				// and targets.
-				if !(len(targets) == 1 && targets[0].Name == "*") {
-					if len(cols) != len(targets) {
-						return nil, false, fmt.Errorf("number of cols = %d "+
-							"but number of targets = %d", len(cols), len(targets))
-					}
+				numTargets := len(targets)
+				// If the target is not * then check there
+				// are equal columns and targets.
+				if !(numTargets == 1 && targets[0].Name == "*") &&
+					numCols != numTargets {
+					return nil, false, fmt.Errorf("number of cols = %d "+
+						"but number of targets = %d", numCols, numTargets)
 				}
 
 				// If the target is not M check that there are not mixed *
 				// and regular columns.
-				if targets[0].Prefix != "M" && len(cols) > 1 &&
+				if targets[0].Prefix != "M" && numCols > 1 &&
 					starCount(cols) >= 1 {
 					return nil, false, fmt.Errorf("cannot mix asterisk " +
 						"and explicit columns")
 				}
 
 				return &OutputPart{cols, targets}, true, nil
-			}
-			if err != nil {
+			} else if err != nil {
 				return nil, false, err
 			}
 		}
