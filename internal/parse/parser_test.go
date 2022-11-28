@@ -102,24 +102,24 @@ var tests = []struct {
 }, {
 	"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
 		"FROM person AS p JOIN address AS a ON p.address_id = a.id " +
-		"WHERE p.name in (SELECT name FROM table WHERE table.n = $Person.name)",
+		"WHERE p.name IN (SELECT name FROM table WHERE table.n = $Person.name)",
 	"ParsedExpr[BypassPart[SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
-		"FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name in (SELECT name FROM table WHERE table.n = ] " +
+		"FROM person AS p JOIN address AS a ON p.address_id = a.id WHERE p.name IN (SELECT name FROM table WHERE table.n = ] " +
 		"InputPart[Person.name] " +
 		"BypassPart[)]]",
 }, {
 	"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
-		"FROM person WHERE p.name in (SELECT name FROM table " +
+		"FROM person WHERE p.name IN (SELECT name FROM table " +
 		"WHERE table.n = $Person.name) UNION " +
 		"SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
-		"FROM person WHERE p.name in " +
+		"FROM person WHERE p.name IN " +
 		"(SELECT name FROM table WHERE table.n = $Person.name)",
 	"ParsedExpr[BypassPart[SELECT p.* AS &Person.*, " +
 		"(a.district, a.street) AS &Address.* " +
-		"FROM person WHERE p.name in (SELECT name FROM table WHERE table.n = ] " +
+		"FROM person WHERE p.name IN (SELECT name FROM table WHERE table.n = ] " +
 		"InputPart[Person.name] " +
 		"BypassPart[) UNION SELECT p.* AS &Person.*, (a.district, a.street) AS &Address.* " +
-		"FROM person WHERE p.name in (SELECT name FROM table WHERE table.n = ] " +
+		"FROM person WHERE p.name IN (SELECT name FROM table WHERE table.n = ] " +
 		"InputPart[Person.name] " +
 		"BypassPart[)]]",
 }, {
@@ -176,6 +176,17 @@ var tests = []struct {
 		"FROM person AS p WHERE p.name=$Person.name",
 	"ParsedExpr[BypassPart[SELECT p.*, a.district FROM person AS p WHERE p.name=] " +
 		"InputPart[Person.name]]",
+}, {
+	"SELECT foo FROM t WHERE t.p = \"Jimmy \\\"Quickfingers\\\" Jones\"",
+	"ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] " +
+		"BypassPart[\"Jimmy \\\"Quickfingers\\\" Jones\"]]",
+}, {
+	"SELECT foo FROM t WHERE t.p = 'Olly O\\'Flanagan'",
+	"ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] " +
+		"BypassPart['Olly O\\'Flanagan']]",
+}, {
+	"\\\"\"\\\"\"",
+	"ParsedExpr[BypassPart[\\\"] BypassPart[\"\\\"\"]]",
 }, {
 	"UPDATE person SET person.address_id = $Address.ID " +
 		"WHERE person.id = $Person.ID",

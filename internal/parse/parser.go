@@ -311,7 +311,7 @@ func (p *Parser) parseStringLiteral() (*BypassPart, bool, error) {
 				}
 			}
 			// Reached end of string and didn't find the closing quote
-			return nil, false, fmt.Errorf("missing right quote for char %d in string literal", cp.pos)
+			return nil, false, fmt.Errorf("missing right quote in string literal")
 		}
 	}
 
