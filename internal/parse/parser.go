@@ -341,8 +341,8 @@ func (p *Parser) parseGoObject() (FullName, bool, error) {
 func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]FullName, bool, error) {
 	var objs []FullName
 	if p.skipByte('(') {
-		more_items := true
-		for more_items {
+		moreItems := true
+		for moreItems {
 			if obj, ok, err := parseFn(p); ok {
 				objs = append(objs, obj)
 				p.skipSpaces()
@@ -351,7 +351,7 @@ func (p *Parser) parseList(parseFn func(p *Parser) (FullName, bool, error)) ([]F
 			} else {
 				return []FullName{}, false, fmt.Errorf("not a valid identifier")
 			}
-			more_items = p.skipByte(',')
+			moreItems = p.skipByte(',')
 			p.skipSpaces()
 		}
 		if p.skipByte(')') {
