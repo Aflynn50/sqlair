@@ -177,16 +177,19 @@ var tests = []struct {
 	"ParsedExpr[BypassPart[SELECT p.*, a.district FROM person AS p WHERE p.name=] " +
 		"InputPart[Person.name]]",
 }, {
-	"SELECT foo FROM t WHERE t.p = \"Jimmy \\\"Quickfingers\\\" Jones\"",
-	"ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] " +
-		"BypassPart[\"Jimmy \\\"Quickfingers\\\" Jones\"]]",
+	`SELECT foo FROM t WHERE t.p = "Jimmy \"Quickfingers\" Jones"`,
+	`ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] ` +
+		`BypassPart["Jimmy \"Quickfingers\" Jones"]]`,
 }, {
-	"SELECT foo FROM t WHERE t.p = 'Olly O\\'Flanagan'",
-	"ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] " +
-		"BypassPart['Olly O\\'Flanagan']]",
+	`SELECT foo FROM t WHERE t.p = 'Olly O\'Flanagan'`,
+	`ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] ` +
+		`BypassPart['Olly O\'Flanagan']]`,
 }, {
-	"\\\"\"\\\"\"",
-	"ParsedExpr[BypassPart[\\\"] BypassPart[\"\\\"\"]]",
+	`\""\""`,
+	`ParsedExpr[BypassPart[\"] BypassPart["\""]]`,
+}, {
+	`"\\"`,
+	`ParsedExpr[BypassPart["\\"]]`,
 }, {
 	"UPDATE person SET person.address_id = $Address.ID " +
 		"WHERE person.id = $Person.ID",
