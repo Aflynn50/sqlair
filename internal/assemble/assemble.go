@@ -41,7 +41,7 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 		if !ok {
 			return nil, fmt.Errorf("unknown type: %s", p.Target[0].Prefix)
 		}
-		for tag, _ := range inf.TagToField {
+		for tag := range inf.TagToField {
 			tags = append(tags, tag)
 		}
 
