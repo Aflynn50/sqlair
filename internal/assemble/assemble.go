@@ -29,6 +29,16 @@ func assembleInput(ti typeNameToInfo, p *parse.InputPart) error {
 	return fmt.Errorf("unknown type: %s", p.Source.Prefix)
 }
 
+// makeOutCols builds an array of columns out of an array of tags.
+// It admits an optional parameter that will be prefixed to the column name.
+func makeOutCols(tags []string, prefix string) []string {
+	var outCols []string = make([]string, 0)
+	for _, tag := range tags {
+		outCols = append(outCols, prefix+tag)
+	}
+	return outCols
+}
+
 func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 
 	var outCols []string = make([]string, 0)
@@ -52,9 +62,7 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 				if p.Source[0].Prefix != "" {
 					pref = p.Source[0].Prefix + "."
 				}
-				for _, tag := range tags {
-					outCols = append(outCols, pref+tag)
-				}
+				outCols = makeOutCols(tags, pref)
 			} else { // Explicit columns e.g. (col1, col2) AS &P.*
 				for _, c := range p.Source {
 					if _, ok := inf.TagToField[c.Name]; !ok {
@@ -65,9 +73,7 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 				}
 			}
 		} else { // This is the case for star but no columns e.g. &P.*
-			for _, tag := range tags {
-				outCols = append(outCols, tag)
-			}
+			outCols = makeOutCols(tags, "")
 		}
 		// The strings are sorted to give a deterministic order for
 		// testing.
