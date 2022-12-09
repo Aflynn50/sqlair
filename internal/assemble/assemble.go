@@ -14,12 +14,12 @@ type AssembledExpr struct {
 	SQL    string
 }
 
-type TypeNameToInfo map[string]*typeinfo.Info
+type typeNameToInfo map[string]*typeinfo.Info
 
 // assembleInput checks that the type in input expression is one we have
 // reflected on and that the tag exists.
-func assembleInput(c TypeNameToInfo, p *parse.InputPart) error {
-	if inf, ok := c[p.Source.Prefix]; ok {
+func assembleInput(ti typeNameToInfo, p *parse.InputPart) error {
+	if inf, ok := ti[p.Source.Prefix]; ok {
 		if _, ok := inf.TagToField[p.Source.Name]; ok {
 			return nil
 		}
@@ -29,7 +29,7 @@ func assembleInput(c TypeNameToInfo, p *parse.InputPart) error {
 	return fmt.Errorf("unknown type: %s", p.Source.Prefix)
 }
 
-func assembleOutput(c TypeNameToInfo, p *parse.OutputPart) ([]string, error) {
+func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 
 	var outCols []string = make([]string, 0)
 
@@ -37,7 +37,7 @@ func assembleOutput(c TypeNameToInfo, p *parse.OutputPart) ([]string, error) {
 	if p.Target[0].Name == "*" { // Star target cases e.g. ...&P.*
 		var tags []string
 
-		inf, ok := c[p.Target[0].Prefix]
+		inf, ok := ti[p.Target[0].Prefix]
 		if !ok {
 			return nil, fmt.Errorf("unknown type: %s", p.Target[0].Prefix)
 		}
@@ -73,7 +73,7 @@ func assembleOutput(c TypeNameToInfo, p *parse.OutputPart) ([]string, error) {
 		sort.Strings(outCols)
 	} else { // None star target cases e.g. ...&(P.name, P.id)
 		for _, t := range p.Target {
-			if inf, ok := c[t.Prefix]; ok {
+			if inf, ok := ti[t.Prefix]; ok {
 				if _, ok := inf.TagToField[t.Name]; !ok {
 					return nil, fmt.Errorf("there is no tag with name %s in %s",
 						t.Name, inf.Type.Name())
@@ -102,7 +102,7 @@ func Assemble(pe *parse.ParsedExpr, args ...any) (expr *AssembledExpr, err error
 		}
 	}()
 
-	var c = make(TypeNameToInfo)
+	var ti = make(typeNameToInfo)
 
 	// Generate and save reflection info.
 	for _, arg := range args {
@@ -110,7 +110,7 @@ func Assemble(pe *parse.ParsedExpr, args ...any) (expr *AssembledExpr, err error
 		if err != nil {
 			return nil, err
 		}
-		c[i.Type.Name()] = i
+		ti[i.Type.Name()] = i
 	}
 
 	sql := ""
@@ -118,7 +118,7 @@ func Assemble(pe *parse.ParsedExpr, args ...any) (expr *AssembledExpr, err error
 	// Check and expand each query part
 	for _, part := range pe.QueryParts {
 		if p, ok := part.(*parse.InputPart); ok {
-			err := assembleInput(c, p)
+			err := assembleInput(ti, p)
 			if err != nil {
 				return nil, err
 			}
@@ -127,7 +127,7 @@ func Assemble(pe *parse.ParsedExpr, args ...any) (expr *AssembledExpr, err error
 		}
 
 		if p, ok := part.(*parse.OutputPart); ok {
-			outCols, err := assembleOutput(c, p)
+			outCols, err := assembleOutput(ti, p)
 			if err != nil {
 				return nil, err
 			}
