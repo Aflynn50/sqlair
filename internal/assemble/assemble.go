@@ -14,9 +14,11 @@ type AssembledExpr struct {
 	SQL    string
 }
 
+type TypeNameToInfo map[string]*typeinfo.Info
+
 // assembleInput checks that the type in input expression is one we have
 // reflected on and that the tag exists.
-func assembleInput(c map[string]*typeinfo.Info, p *parse.InputPart) error {
+func assembleInput(c TypeNameToInfo, p *parse.InputPart) error {
 	if inf, ok := c[p.Source.Prefix]; ok {
 		if _, ok := inf.TagToField[p.Source.Name]; ok {
 			return nil
@@ -27,7 +29,7 @@ func assembleInput(c map[string]*typeinfo.Info, p *parse.InputPart) error {
 	return fmt.Errorf("unknown type: %s", p.Source.Prefix)
 }
 
-func assembleOutput(c map[string]*typeinfo.Info, p *parse.OutputPart) ([]string, error) {
+func assembleOutput(c TypeNameToInfo, p *parse.OutputPart) ([]string, error) {
 
 	var outCols []string = make([]string, 0)
 
@@ -100,7 +102,7 @@ func Assemble(pe *parse.ParsedExpr, args ...any) (expr *AssembledExpr, err error
 		}
 	}()
 
-	var c = make(map[string]*typeinfo.Info)
+	var c = make(TypeNameToInfo)
 
 	// Generate and save reflection info.
 	for _, arg := range args {
