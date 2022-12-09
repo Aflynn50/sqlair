@@ -30,7 +30,7 @@ func assembleInput(ti typeNameToInfo, p *parse.InputPart) error {
 }
 
 // makeOutCols builds an array of columns out of an array of tags.
-// It admits an optional parameter that will be prefixed to the column name.
+// It admits a prefix parameter that will be prepended to the column name.
 func makeOutCols(tags []string, prefix string) []string {
 	var outCols []string = make([]string, 0)
 	for _, tag := range tags {
