@@ -34,7 +34,8 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 	var outCols []string = make([]string, 0)
 
 	// In parse we ensure that if p.Target[0] is a * then len(p.Target) == 1
-	if p.Target[0].Name == "*" { // Star target cases e.g. ...&P.*
+	// Case 1: Star target cases e.g. ...&P.*
+	if p.Target[0].Name == "*" {
 		var tags []string
 
 		inf, ok := ti[p.Target[0].Prefix]
@@ -71,25 +72,27 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 		// The strings are sorted to give a deterministic order for
 		// testing.
 		sort.Strings(outCols)
-	} else { // None star target cases e.g. ...&(P.name, P.id)
-		for _, t := range p.Target {
-			if inf, ok := ti[t.Prefix]; ok {
-				if _, ok := inf.TagToField[t.Name]; !ok {
-					return nil, fmt.Errorf("there is no tag with name %s in %s",
-						t.Name, inf.Type.Name())
-				}
-			} else {
-				return nil, fmt.Errorf("unknown type: %s", t.Prefix)
+		return outCols, nil
+	}
+
+	// Case 2: None star target cases e.g. ...&(P.name, P.id)
+	for _, t := range p.Target {
+		if inf, ok := ti[t.Prefix]; ok {
+			if _, ok := inf.TagToField[t.Name]; !ok {
+				return nil, fmt.Errorf("there is no tag with name %s in %s",
+					t.Name, inf.Type.Name())
 			}
+		} else {
+			return nil, fmt.Errorf("unknown type: %s", t.Prefix)
 		}
-		if len(p.Source) > 0 { // Explicit columns e.g. name_1 AS P.name
-			for _, c := range p.Source {
-				outCols = append(outCols, c.String())
-			}
-		} else { // No columns e.g. &(P.name, P.id)
-			for _, t := range p.Target {
-				outCols = append(outCols, t.Name)
-			}
+	}
+	if len(p.Source) > 0 { // Explicit columns e.g. name_1 AS P.name
+		for _, c := range p.Source {
+			outCols = append(outCols, c.String())
+		}
+	} else { // No columns e.g. &(P.name, P.id)
+		for _, t := range p.Target {
+			outCols = append(outCols, t.Name)
 		}
 	}
 	return outCols, nil
