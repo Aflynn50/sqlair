@@ -6,10 +6,27 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+
+	"github.com/canonical/sqlair/internal/parse"
 )
 
 var cacheMutex sync.RWMutex
 var cache = make(map[reflect.Type]*Info)
+
+// GetField gets the field specified in the FullName from a none nil value
+func GetField(value any, p parse.FullName) (any, error) {
+	v := reflect.ValueOf(value)
+
+	// If it is in the cache then we have seen it in prepare. If the name of the
+	// type matches the input part then it must be the same one.
+	if inf, ok := cache[v.Type()]; ok {
+		// The field has to be here since we already checked this at the parse
+		// stage.
+		f, _ := inf.TagToField[p.Name]
+		return v.Field(f.Index).Interface(), nil
+	}
+	return nil, fmt.Errorf("type %s a different to the one passed at the previous stage", p.Prefix)
+}
 
 // Reflect will return the Info of a given type,
 // generating and caching as required.
