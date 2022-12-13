@@ -37,7 +37,7 @@ func Complete(ae *assemble.AssembledExpr, args ...any) (*CompletedExpr, error) {
 	for _, part := range ae.Parsed.QueryParts {
 		if p, ok := part.(*parse.InputPart); ok {
 			if v, ok := tv[p.Source.Prefix]; ok {
-				fv, err := typeinfo.GetField(v, p.Source)
+				fv, err := typeinfo.FieldValue(v, p.Source)
 				if err != nil {
 					return nil, err
 				}

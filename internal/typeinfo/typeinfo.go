@@ -13,15 +13,18 @@ import (
 var cacheMutex sync.RWMutex
 var cache = make(map[reflect.Type]*Info)
 
-// GetField gets the field specified in the FullName from a none nil value
-func GetField(value any, p parse.FullName) (any, error) {
+// FieldValue returns the actual value for the object passed as first parameter
+// and the field passed as second parameter.
+// Returns nil and an error otherwise.
+func FieldValue(value any, p parse.FullName) (any, error) {
 	v := reflect.ValueOf(value)
 
-	// If it is in the cache then we have seen it in prepare. If the name of the
-	// type matches the input part then it must be the same one.
+	// If the type was used during the assemble stage, then it must be in
+	// the cache. If the name of the type matches the input part then it
+	// must be the same one.
 	if inf, ok := cache[v.Type()]; ok {
-		// The field has to be here since we already checked this at the parse
-		// stage.
+		// The parse stage guarantees that the field has to be in the
+		// TagToField map. Otherwise, something wen really wrong.
 		f, _ := inf.TagToField[p.Name]
 		return v.Field(f.Index).Interface(), nil
 	}
