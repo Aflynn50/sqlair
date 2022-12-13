@@ -42,8 +42,9 @@ func Complete(ae *assemble.AssembledExpr, args ...any) (*CompletedExpr, error) {
 					return nil, err
 				}
 				fvs = append(fvs, fv)
+			} else {
+				return nil, fmt.Errorf("type %s not passed as a parameter", p.Source.Prefix)
 			}
-			return nil, fmt.Errorf("type %s not passed as an arguement", p.Source.Prefix)
 		}
 	}
 
