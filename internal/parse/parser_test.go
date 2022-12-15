@@ -37,6 +37,12 @@ var tests = []struct {
 	"SELECT p.* AS &Person.*",
 	"ParsedExpr[BypassPart[SELECT p.* AS &Person.*]]",
 }, {
+	`SELECT '''' AS &Person.*`,
+	`ParsedExpr[BypassPart[SELECT ] BypassPart[''''] BypassPart[ AS &Person.*]]`,
+}, {
+	`SELECT "'" AS &Person.*`,
+	`ParsedExpr[BypassPart[SELECT ] BypassPart["'"] BypassPart[ AS &Person.*]]`,
+}, {
 	"SELECT p.* AS&Person.*",
 	"ParsedExpr[BypassPart[SELECT p.* AS&Person.*]]",
 }, {
@@ -220,6 +226,9 @@ func (s *ParserSuite) TestUnfinishedStringLiteral(c *C) {
 		"SELECT foo FROM t WHERE x = \"dddd",
 		"SELECT foo FROM t WHERE x = \"dddd'",
 		"SELECT foo FROM t WHERE x = '''",
+		`SELECT foo FROM t WHERE x = '''""`,
+		`SELECT foo FROM t WHERE x = """`,
+		`SELECT foo FROM t WHERE x = """''`,
 	}
 
 	for _, sql := range testList {
@@ -241,6 +250,22 @@ func (s *ParserSuite) TestEmptyStringLiteral(c *C) {
 	parser := parse.NewParser()
 	_, err := parser.Parse(sql)
 	c.Assert(err, IsNil)
+}
+
+// Detect well escaped string literals
+func (s *ParserSuite) TestWellEscaped(c *C) {
+	sqls := []string{
+		`SELECT foo FROM t WHERE x = 'O''Donnell'`,
+		`SELECT foo FROM t WHERE x = "O""Donnell"`,
+		`SELECT foo FROM t WHERE x = 'O''Do''nnell'`,
+		`SELECT foo FROM t WHERE x = "O""Do""nnell"`,
+	}
+
+	for _, sql := range sqls {
+		parser := parse.NewParser()
+		_, err := parser.Parse(sql)
+		c.Assert(err, IsNil)
+	}
 }
 
 func (s *ParserSuite) TestBadFormatInput(c *C) {
