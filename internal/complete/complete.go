@@ -34,6 +34,7 @@ func Complete(ae *assemble.AssembledExpr, args ...any) (*CompletedExpr, error) {
 
 	fvs := []any{}
 
+	var ioparts int
 	for _, part := range ae.Parsed.QueryParts {
 		if p, ok := part.(*parse.InputPart); ok {
 			if v, ok := tv[p.Source.Prefix]; ok {
@@ -42,10 +43,15 @@ func Complete(ae *assemble.AssembledExpr, args ...any) (*CompletedExpr, error) {
 					return nil, err
 				}
 				fvs = append(fvs, fv)
+				ioparts++
 			} else {
 				return nil, fmt.Errorf("type %s not passed as a parameter", p.Source.Prefix)
 			}
 		}
+	}
+
+	if ioparts != len(args) {
+		return nil, fmt.Errorf("parameters mismatch. expected %d, have %d", ioparts, len(args))
 	}
 
 	return &CompletedExpr{ae.Parsed, fvs}, nil
