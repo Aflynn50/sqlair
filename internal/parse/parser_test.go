@@ -210,22 +210,22 @@ var tests = []struct {
 		"InputPart[Person.name]]",
 }, {
 	"escaped double quote",
-	`SELECT foo FROM t WHERE t.p = "Jimmy \"Quickfingers\" Jones"`,
+	`SELECT foo FROM t WHERE t.p = "Jimmy ""Quickfingers"" Jones"`,
 	`ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] ` +
-		`BypassPart["Jimmy \"Quickfingers\" Jones"]]`,
+		`BypassPart["Jimmy ""Quickfingers"" Jones"]]`,
 }, {
 	"escaped single quote",
-	`SELECT foo FROM t WHERE t.p = 'Olly O\'Flanagan'`,
+	`SELECT foo FROM t WHERE t.p = 'Olly O''Flanagan'`,
 	`ParsedExpr[BypassPart[SELECT foo FROM t WHERE t.p = ] ` +
-		`BypassPart['Olly O\'Flanagan']]`,
+		`BypassPart['Olly O''Flanagan']]`,
 }, {
-	"escaped quotes",
-	`\""\""`,
-	`ParsedExpr[BypassPart[\"] BypassPart["\""]]`,
-}, {
-	"small escaped quotes",
-	`"\\"`,
-	`ParsedExpr[BypassPart["\\"]]`,
+	"complex escaped quotes",
+	`SELECT * AS &Person.* FROM person WHERE ` +
+		`name IN ('Lorn', 'Onos T''oolan', '', ''' ''');`,
+	`ParsedExpr[BypassPart[SELECT * AS &Person.* FROM person WHERE name IN (] ` +
+		`BypassPart['Lorn'] BypassPart[, ] BypassPart['Onos T''oolan'] ` +
+		`BypassPart[, ] BypassPart[''] BypassPart[, ] BypassPart[''' '''] ` +
+		`BypassPart[);]]`,
 }, {
 	"update",
 	"UPDATE person SET person.address_id = $Address.id " +
@@ -255,6 +255,7 @@ func (s *ParserSuite) TestUnfinishedStringLiteral(c *C) {
 		"SELECT foo FROM t WHERE x = 'dddd",
 		"SELECT foo FROM t WHERE x = \"dddd",
 		"SELECT foo FROM t WHERE x = \"dddd'",
+		"SELECT foo FROM t WHERE x = '''",
 	}
 
 	for _, sql := range testList {
@@ -279,13 +280,13 @@ func (s *ParserSuite) TestEmptyStringLiteral(c *C) {
 }
 
 func (s *ParserSuite) TestBadFormatInput(c *C) {
-	testListInvalidId := []string{
+	testList := []string{
 		"SELECT foo FROM t WHERE x = $Address.",
 		"SELECT foo FROM t WHERE x = $Address.&d",
 		"SELECT foo FROM t WHERE x = $Address.-",
 	}
 
-	for _, sql := range testListInvalidId {
+	for _, sql := range testList {
 		parser := parse.NewParser()
 		expr, err := parser.Parse(sql)
 		c.Assert(err, ErrorMatches, "cannot parse expression: invalid identifier near char 37")
