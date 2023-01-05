@@ -36,10 +36,9 @@ const (
 	fromName
 )
 
-// createOutCols creates the list of output columns from the parameters passed
-// in.
-// The source and sf define the field to use from the FullName. If inf is not
-// nil, then it is used to run some checks.
+// createOutCols creates the list of output columns from the parameters passed in.
+// The source and sf define the field to use from the FullName.
+// If inf is not nil, then it is used to run some checks.
 // Returns the array of columns and nil on success, nil and an error otherwise.
 func createOutCols(source []parse.FullName, sf sourceField, inf *typeinfo.Info) ([]string, error) {
 	var outCols []string
