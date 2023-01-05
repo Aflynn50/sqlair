@@ -240,12 +240,12 @@ var tests = []struct {
 		`BypassPart[);]]`,
 }, {
 	"update",
-	"UPDATE person SET person.address_id = $Address.ID " +
-		"WHERE person.id = $Person.ID",
+	"UPDATE person SET person.address_id = $Address.id " +
+		"WHERE person.id = $Person.id",
 	"ParsedExpr[BypassPart[UPDATE person SET person.address_id = ] " +
-		"InputPart[Address.ID] " +
+		"InputPart[Address.id] " +
 		"BypassPart[ WHERE person.id = ] " +
-		"InputPart[Person.ID]]",
+		"InputPart[Person.id]]",
 }}
 
 func (s *ParserSuite) TestRound(c *C) {
