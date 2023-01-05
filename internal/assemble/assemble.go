@@ -32,8 +32,8 @@ func assembleInput(ti typeNameToInfo, p *parse.InputPart) error {
 type sourceField int
 
 const (
-	fromString sourceField = iota
-	fromName
+	useString sourceField = iota
+	useName
 )
 
 // createOutCols creates the list of output columns from the parameters passed in.
@@ -49,9 +49,9 @@ func createOutCols(source []parse.FullName, sf sourceField, inf *typeinfo.Info) 
 					c.Name, inf.Type.Name())
 			}
 		}
-		if sf == fromString {
+		if sf == useString {
 			outCols = append(outCols, c.String())
-		} else {
+		} else if sf == useName {
 			outCols = append(outCols, c.Name)
 		}
 	}
@@ -98,7 +98,7 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 
 		// Case 1.2: Explicit columns e.g. "(col1, t.col2) AS &P.*".
 		if len(p.Source) > 0 {
-			return createOutCols(p.Source, fromString, inf)
+			return createOutCols(p.Source, useString, inf)
 		}
 	}
 
@@ -106,11 +106,11 @@ func assembleOutput(ti typeNameToInfo, p *parse.OutputPart) ([]string, error) {
 
 	// Case 2.1: Explicit columns e.g. "name_1 AS P.name".
 	if len(p.Source) > 0 {
-		return createOutCols(p.Source, fromString, nil)
+		return createOutCols(p.Source, useString, nil)
 	}
 
 	// Case 2.2: No columns e.g. "&(P.name, P.id)".
-	return createOutCols(p.Target, fromName, nil)
+	return createOutCols(p.Target, useName, nil)
 }
 
 func Assemble(pe *parse.ParsedExpr, args ...any) (expr *AssembledExpr, err error) {
