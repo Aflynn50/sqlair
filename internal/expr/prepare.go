@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
+	"strings"
 )
 
 // PreparedExpr contains an SQL expression that is ready for execution.
@@ -134,6 +135,40 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]string, error) {
 	return outCols, nil
 }
 
+func genId(queryStr string, idNum int) (string, int) {
+	var words = strings.Fields(queryStr)
+	id := "sqlair_" + fmt.Sprintf("%d", idNum)
+
+	idValid := false
+	for !idValid {
+		idValid = true
+		for _, w := range words {
+			if w == id {
+				idValid = false
+				break
+			}
+		}
+		if !idValid {
+			idNum++
+			id = "sqlair_" + fmt.Sprintf("%d", idNum)
+		}
+	}
+	return id, idNum
+}
+
+func genIds(queryStr string, numIds int) []string {
+	var ids = []string{}
+	var id string
+	var idNum int
+
+	for j := 0; j < numIds; j++ {
+		id, idNum = genId(queryStr, idNum)
+		ids = append(ids, id)
+		idNum++
+	}
+	return ids
+}
+
 // Prepare takes a parsed expression and struct instantiations of all the type
 // mentioned in it.
 // The IO parts of the statement are checked for validity against the types
@@ -156,7 +191,11 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 		ti[inf.structType.Name()] = inf
 	}
 
+	// Generate unique ids for output parts.
+
 	var sql bytes.Buffer
+
+	idPositions := []int{}
 	// Check and expand each query part.
 	for _, part := range pe.queryParts {
 		if p, ok := part.(*inputPart); ok {
@@ -164,7 +203,8 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			if err != nil {
 				return nil, err
 			}
-			sql.WriteString(p.toSQL([]string{}))
+			s, _ := p.toSQL([]string{})
+			sql.WriteString(s)
 			continue
 		}
 
@@ -173,13 +213,27 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			if err != nil {
 				return nil, err
 			}
-			sql.WriteString(p.toSQL(outCols))
+			s, ps := p.toSQL(outCols)
+			for _, p := range ps {
+				idPositions = append(idPositions, p+sql.Len())
+			}
+			sql.WriteString(s)
 			continue
 		}
 
 		p := part.(*bypassPart)
-		sql.WriteString(p.toSQL([]string{}))
+		s, _ := p.toSQL([]string{})
+		sql.WriteString(s)
 	}
 
-	return &PreparedExpr{ParsedExpr: pe, SQL: sql.String()}, nil
+	sqlStr := sql.String()
+	idList := genIds(sqlStr, len(idPositions))
+	idOffset := 0
+	for i, id := range idList {
+		idPos := idPositions[i] + idOffset
+		sqlStr = sqlStr[:idPos] + id + sqlStr[idPos:]
+		idOffset += len(id)
+	}
+
+	return &PreparedExpr{ParsedExpr: pe, SQL: sqlStr}, nil
 }

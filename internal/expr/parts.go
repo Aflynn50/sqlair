@@ -13,7 +13,7 @@ type queryPart interface {
 	String() string
 
 	// ToSQL returns the SQL representation of the part.
-	toSQL([]string) string
+	toSQL([]string) (string, []int)
 }
 
 // FullName represents a table column or a Go type identifier.
@@ -40,8 +40,8 @@ func (p *inputPart) String() string {
 	return fmt.Sprintf("Input[%+v]", p.source)
 }
 
-func (p *inputPart) toSQL([]string) string {
-	return "?"
+func (p *inputPart) toSQL([]string) (string, []int) {
+	return "?", nil
 }
 
 // outputPart represents a named target output variable in the SQL expression,
@@ -55,15 +55,19 @@ func (p *outputPart) String() string {
 	return fmt.Sprintf("Output[%+v %+v]", p.source, p.target)
 }
 
-func (p *outputPart) toSQL(cs []string) string {
+func (p *outputPart) toSQL(cs []string) (string, []int) {
 	var out bytes.Buffer
+	ps := []int{}
 	for i, c := range cs {
 		out.WriteString(c)
+		out.WriteString(" AS ")
+		// Mark where to put in the unique id
+		ps = append(ps, out.Len())
 		if i != len(cs)-1 {
 			out.WriteString(", ")
 		}
 	}
-	return out.String()
+	return out.String(), ps
 }
 
 // bypassPart represents a part of the expression that we want to pass to the
@@ -76,6 +80,6 @@ func (p *bypassPart) String() string {
 	return "Bypass[" + p.chunk + "]"
 }
 
-func (p *bypassPart) toSQL([]string) string {
-	return p.chunk
+func (p *bypassPart) toSQL([]string) (string, []int) {
+	return p.chunk, nil
 }
