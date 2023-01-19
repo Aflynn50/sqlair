@@ -3,9 +3,7 @@ package expr
 import (
 	"bytes"
 	"fmt"
-	"regexp"
 	"sort"
-	"strings"
 )
 
 // PreparedExpr contains an SQL expression that is ready for execution.
@@ -136,31 +134,6 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]string, error) {
 	return outCols, nil
 }
 
-func addUniqueIds(query string, cols []string, positions []int) string {
-	reg := regexp.MustCompile("[^a-zA-Z0-9]+")
-	offset := 0
-	n := 0
-
-	for i, p := range positions {
-		alphaNumCol := reg.ReplaceAllString(cols[i], "")
-		id := "sqlair_" + alphaNumCol + fmt.Sprintf("_%d", n)
-
-		for {
-			if !strings.Contains(query, id) {
-				break
-			}
-			n++
-			id = "sqlair_" + alphaNumCol + fmt.Sprintf("_%d", n)
-		}
-		n++
-
-		pos := p + offset
-		query = query[:pos] + id + query[pos:]
-		offset += len(id)
-	}
-	return query
-}
-
 // Prepare takes a parsed expression and struct instantiations of all the type
 // mentioned in it.
 // The IO parts of the statement are checked for validity against the types
@@ -186,9 +159,8 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 	// Generate unique ids for output parts.
 
 	var sql bytes.Buffer
+	var n int
 
-	idPositions := []int{}
-	cols := []string{}
 	// Check and expand each query part.
 	for _, part := range pe.queryParts {
 		if p, ok := part.(*inputPart); ok {
@@ -196,7 +168,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			if err != nil {
 				return nil, err
 			}
-			s, _ := p.toSQL([]string{})
+			s := p.toSQL([]string{}, 0)
 			sql.WriteString(s)
 			continue
 		}
@@ -206,21 +178,16 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			if err != nil {
 				return nil, err
 			}
-			s, ps := p.toSQL(outCols)
-			cols = append(cols, outCols...)
-			for _, p := range ps {
-				idPositions = append(idPositions, p+sql.Len())
-			}
+			s := p.toSQL(outCols, n)
+			n += len(outCols)
 			sql.WriteString(s)
 			continue
 		}
 
 		p := part.(*bypassPart)
-		s, _ := p.toSQL([]string{})
+		s := p.toSQL([]string{}, 0)
 		sql.WriteString(s)
 	}
 
-	sqlStr := addUniqueIds(sql.String(), cols, idPositions)
-
-	return &PreparedExpr{ParsedExpr: pe, SQL: sqlStr}, nil
+	return &PreparedExpr{ParsedExpr: pe, SQL: sql.String()}, nil
 }

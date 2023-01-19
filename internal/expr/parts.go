@@ -3,6 +3,7 @@ package expr
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 )
 
 // A QueryPart represents a section of a parsed SQL statement, which forms
@@ -13,7 +14,7 @@ type queryPart interface {
 	String() string
 
 	// ToSQL returns the SQL representation of the part.
-	toSQL([]string) (string, []int)
+	toSQL([]string, int) string
 }
 
 // FullName represents a table column or a Go type identifier.
@@ -40,8 +41,8 @@ func (p *inputPart) String() string {
 	return fmt.Sprintf("Input[%+v]", p.source)
 }
 
-func (p *inputPart) toSQL([]string) (string, []int) {
-	return "?", nil
+func (p *inputPart) toSQL([]string, int) string {
+	return "?"
 }
 
 // outputPart represents a named target output variable in the SQL expression,
@@ -55,19 +56,21 @@ func (p *outputPart) String() string {
 	return fmt.Sprintf("Output[%+v %+v]", p.source, p.target)
 }
 
-func (p *outputPart) toSQL(cs []string) (string, []int) {
+var alphaNum = regexp.MustCompile("[^a-zA-Z0-9]+")
+
+func (p *outputPart) toSQL(cs []string, n int) string {
 	var out bytes.Buffer
-	ps := []int{}
 	for i, c := range cs {
 		out.WriteString(c)
 		out.WriteString(" AS ")
-		// Mark where to put in the unique id
-		ps = append(ps, out.Len())
+		c := alphaNum.ReplaceAllString(c, "")
+		out.WriteString("_sqlair_" + c + fmt.Sprintf("_%d", n))
 		if i != len(cs)-1 {
 			out.WriteString(", ")
 		}
+		n++
 	}
-	return out.String(), ps
+	return out.String()
 }
 
 // bypassPart represents a part of the expression that we want to pass to the
@@ -80,6 +83,6 @@ func (p *bypassPart) String() string {
 	return "Bypass[" + p.chunk + "]"
 }
 
-func (p *bypassPart) toSQL([]string) (string, []int) {
-	return p.chunk, nil
+func (p *bypassPart) toSQL([]string, int) string {
+	return p.chunk
 }
