@@ -3,6 +3,7 @@ package expr
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -135,38 +136,29 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]string, error) {
 	return outCols, nil
 }
 
-func genId(queryStr string, idNum int) (string, int) {
-	var words = strings.Fields(queryStr)
-	id := "sqlair_" + fmt.Sprintf("%d", idNum)
+func addUniqueIds(query string, cols []string, positions []int) string {
+	reg := regexp.MustCompile("[^a-zA-Z0-9]+")
+	offset := 0
+	n := 0
 
-	idValid := false
-	for !idValid {
-		idValid = true
-		for _, w := range words {
-			if w == id {
-				idValid = false
+	for i, p := range positions {
+		alphaNumCol := reg.ReplaceAllString(cols[i], "")
+		id := "sqlair_" + alphaNumCol + fmt.Sprintf("_%d", n)
+
+		for {
+			if !strings.Contains(query, id) {
 				break
 			}
+			n++
+			id = "sqlair_" + alphaNumCol + fmt.Sprintf("_%d", n)
 		}
-		if !idValid {
-			idNum++
-			id = "sqlair_" + fmt.Sprintf("%d", idNum)
-		}
-	}
-	return id, idNum
-}
+		n++
 
-func genIds(queryStr string, numIds int) []string {
-	var ids = []string{}
-	var id string
-	var idNum int
-
-	for j := 0; j < numIds; j++ {
-		id, idNum = genId(queryStr, idNum)
-		ids = append(ids, id)
-		idNum++
+		pos := p + offset
+		query = query[:pos] + id + query[pos:]
+		offset += len(id)
 	}
-	return ids
+	return query
 }
 
 // Prepare takes a parsed expression and struct instantiations of all the type
@@ -196,6 +188,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 	var sql bytes.Buffer
 
 	idPositions := []int{}
+	cols := []string{}
 	// Check and expand each query part.
 	for _, part := range pe.queryParts {
 		if p, ok := part.(*inputPart); ok {
@@ -214,6 +207,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 				return nil, err
 			}
 			s, ps := p.toSQL(outCols)
+			cols = append(cols, outCols...)
 			for _, p := range ps {
 				idPositions = append(idPositions, p+sql.Len())
 			}
@@ -226,14 +220,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 		sql.WriteString(s)
 	}
 
-	sqlStr := sql.String()
-	idList := genIds(sqlStr, len(idPositions))
-	idOffset := 0
-	for i, id := range idList {
-		idPos := idPositions[i] + idOffset
-		sqlStr = sqlStr[:idPos] + id + sqlStr[idPos:]
-		idOffset += len(id)
-	}
+	sqlStr := addUniqueIds(sql.String(), cols, idPositions)
 
 	return &PreparedExpr{ParsedExpr: pe, SQL: sqlStr}, nil
 }
