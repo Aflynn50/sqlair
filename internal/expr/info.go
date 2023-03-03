@@ -4,6 +4,11 @@ import (
 	"reflect"
 )
 
+type fielder interface {
+	//Type() reflect.Type
+	Name() string
+}
+
 // field represents reflection information about a field from some struct type.
 type field struct {
 	typ reflect.Type
@@ -26,4 +31,21 @@ type info struct {
 	tags []string
 
 	tagToField map[string]field
+}
+
+func (f field) Name() string {
+	return f.name
+}
+
+type M map[string]any
+
+var mType = reflect.TypeOf(M{})
+
+type mapKey struct {
+	// Key name
+	name string
+}
+
+func (mk mapKey) Name() string {
+	return mk.name
 }

@@ -6,6 +6,8 @@ import (
 	"github.com/canonical/sqlair/internal/expr"
 )
 
+type M = expr.M
+
 type Statement struct {
 	pe *expr.PreparedExpr
 }

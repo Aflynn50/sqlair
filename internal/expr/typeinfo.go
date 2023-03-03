@@ -45,7 +45,7 @@ func typeInfo(value any) (*info, error) {
 func generate(t reflect.Type) (*info, error) {
 	// Reflection information is only generated for structs.
 	if t.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("internal error: attempted to obtain struct information for something that is not a struct: %s.", t)
+		return nil, fmt.Errorf("internal error: attempted to obtain struct information for something that is not a struct: %s", t)
 	}
 
 	info := info{
@@ -114,4 +114,18 @@ func parseTag(tag string) (string, bool, error) {
 	}
 
 	return name, omitEmpty, nil
+}
+
+// CheckValidMapType takes a reflect type and checks whether it is a map, the type name is M, and the key type of the map is string, and
+// returns an error if any of these conditions is not true.
+func CheckValidMapType(mt reflect.Type) error {
+	if mt != mType {
+		return fmt.Errorf(`map type is: %s, expected: %s`, mt.Name(), mType.Name())
+	}
+	return nil
+}
+
+// IsValidMapType takes a reflect type and checks whether it is a map, the type name is M, and the key type of the map is string.
+func IsValidMType(mt reflect.Type) bool {
+	return mt == mType
 }

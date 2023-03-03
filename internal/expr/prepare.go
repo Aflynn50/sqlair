@@ -16,12 +16,13 @@ type PreparedExpr struct {
 	SQL     string
 }
 
-// loc stores the type and field in which you can find an IO part.
+// loc stores the type, and a struct field or map key, in which you can find an IO part.
 type loc struct {
 	typ   reflect.Type
-	field field
+	field fielder
 }
 
+// type typeNameToInfo map[string]infoType
 type typeNameToInfo map[string]*info
 
 // getKeys returns the keys of a string map in a deterministic order.
@@ -108,19 +109,24 @@ type retBuilder struct {
 }
 
 // prepareExpr checks that an input or output part is correctly formatted, that
-// it corrosponds to known types and then generates the columns to go in the query.
+// it corresponds to known types and then generates the columns to go in the query.
 func prepareExpr(ti typeNameToInfo, p *ioPart) ([]fullName, []loc, error) {
-
-	var info *info
-	var ok bool
-
 	// res stores the list of columns to put in the query and their locations.
 	res := retBuilder{}
 
 	// add prepares a location and column.
 	add := func(typeName string, tag string, col fullName) error {
-		info, ok = ti[typeName]
+		info, ok := ti[typeName]
+
+		// Could not find a registered type info
 		if !ok {
+			// Handle the M type
+			if typeName == "M" {
+				res.cols = append(res.cols, col)
+				res.locs = append(res.locs, loc{reflect.TypeOf(M{}), mapKey{name: tag}})
+				return nil
+			}
+
 			return fmt.Errorf(`type %s unknown, have: %s`, typeName, strings.Join(getKeys(ti), ", "))
 		}
 
@@ -143,7 +149,7 @@ func prepareExpr(ti typeNameToInfo, p *ioPart) ([]fullName, []loc, error) {
 	// Case 0: A simple standalone input expression e.g. "$P.name".
 	if !p.isOut && len(p.cols) == 0 {
 		if len(p.types) != 1 {
-			return []fullName{fullName{}}, nil, fmt.Errorf("internal error: cannot group standalone input expressions")
+			return []fullName{{}}, nil, fmt.Errorf("internal error: cannot group standalone input expressions")
 		}
 		if err := add(p.types[0].prefix, p.types[0].name, fullName{}); err != nil {
 			return nil, nil, err
@@ -162,10 +168,14 @@ func prepareExpr(ti typeNameToInfo, p *ioPart) ([]fullName, []loc, error) {
 		for _, t := range p.types {
 			if t.name == "*" {
 				// Generate columns for Star types.
-				info, ok = ti[t.prefix]
+				info, ok := ti[t.prefix]
 				if !ok {
+					if t.prefix == "M" {
+						return nil, nil, fmt.Errorf(`map type with asterisk cannot be used when no column name is specified or column name is asterisk`)
+					}
 					return nil, nil, fmt.Errorf(`type %s unknown, have: %s`, t.prefix, strings.Join(getKeys(ti), ", "))
 				}
+
 				for _, tag := range info.tags {
 					if err := add(t.prefix, tag, fullName{pref, tag}); err != nil {
 						return nil, nil, err
@@ -184,6 +194,16 @@ func prepareExpr(ti typeNameToInfo, p *ioPart) ([]fullName, []loc, error) {
 	// 		   "(col1, col2) VALUES ($P.*)".
 	// There must only be a single type in this case.
 	if p.types[0].name == "*" {
+		_, ok := ti[p.types[0].prefix]
+		if !ok {
+			if p.types[0].prefix != "M" {
+				return nil, nil, fmt.Errorf(`type %s unknown, have: %s`, p.types[0].prefix, strings.Join(getKeys(ti), ", "))
+			}
+			if !p.isOut {
+				return nil, nil, fmt.Errorf(`map type with asterisk cannot be used as input`)
+			}
+		}
+
 		for _, c := range p.cols {
 			if err := add(p.types[0].prefix, c.name, c); err != nil {
 				return nil, nil, err
