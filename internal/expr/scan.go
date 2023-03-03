@@ -43,9 +43,7 @@ func (re *ResultExpr) All() ([][]any, error) {
 	ts := getTypes(re.outputs)
 
 	for {
-		ok, err := re.Next()
-
-		if err != nil {
+		if ok, err := re.Next(); err != nil {
 			return [][]any{}, err
 		} else if !ok {
 			break
@@ -80,6 +78,9 @@ func (re *ResultExpr) All() ([][]any, error) {
 
 func (re *ResultExpr) Next() (bool, error) {
 	if !re.rows.Next() {
+		if re.rows.Err() != nil {
+			return false, re.rows.Err()
+		}
 		return false, nil
 	}
 
@@ -130,7 +131,9 @@ func (re *ResultExpr) Decode(args ...any) (err error) {
 		}
 		v = reflect.Indirect(v)
 
-		re.decodeValue(v)
+		if err := re.decodeValue(v); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -190,13 +193,10 @@ func setValue(dest reflect.Value, fInfo fielder, val any) error {
 		if dest.Type().Kind() != reflect.Map {
 			return fmt.Errorf("internal error: key of type %#v but type %#v is not a map", f, dest.Type())
 		}
-
 		k := reflect.ValueOf(f.name)
-
 		if !dest.CanSet() {
 			return fmt.Errorf("cannot set mapkey %#v", name)
 		}
-
 		dest.SetMapIndex(k, v)
 		return nil
 	default:

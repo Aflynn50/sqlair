@@ -76,13 +76,12 @@ func (pe *PreparedExpr) Complete(args ...any) (ce *CompletedExpr, err error) {
 			qargs = append(qargs, named)
 		case mapKey:
 			k := in.field.(mapKey)
-
-			foundMapKey = true
 			if foundMap {
 				v, ok := m[k.name]
 				if !ok {
 					return nil, fmt.Errorf(`key %q not found in map`, k.name)
 				}
+				foundMapKey = true
 				named := sql.Named("sqlair_"+strconv.Itoa(i), v)
 				qargs = append(qargs, named)
 			}

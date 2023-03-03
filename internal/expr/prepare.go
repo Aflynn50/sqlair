@@ -246,10 +246,8 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 	}
 
 	var sql bytes.Buffer
-	// n counts the inputs.
-	var n int
-	// m counts the outputs.
-	var m int
+
+	var inputInd, outputInd int
 
 	var outputs = make([]loc, 0)
 	var inputs = make([]loc, 0)
@@ -266,22 +264,22 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 				for i, c := range cols {
 					sql.WriteString(c.String())
 					sql.WriteString(" AS _sqlair_")
-					sql.WriteString(strconv.Itoa(m))
+					sql.WriteString(strconv.Itoa(inputInd))
 					if i != len(cols)-1 {
 						sql.WriteString(", ")
 					}
-					m++
+					inputInd++
 				}
 				outputs = append(outputs, locs...)
 			} else {
 				if len(p.cols) == 0 {
-					sql.WriteString("@sqlair_" + strconv.Itoa(n))
+					sql.WriteString("@sqlair_" + strconv.Itoa(outputInd))
 				} else {
 					sql.WriteString(printCols(cols))
 					sql.WriteString(" VALUES ")
-					sql.WriteString(nParams(n, len(cols)))
+					sql.WriteString(nParams(outputInd, len(cols)))
 				}
-				n += len(cols)
+				outputInd += len(cols)
 				inputs = append(inputs, locs...)
 			}
 		case *bypassPart:

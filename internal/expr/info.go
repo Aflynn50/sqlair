@@ -5,7 +5,6 @@ import (
 )
 
 type fielder interface {
-	//Type() reflect.Type
 	Name() string
 }
 
