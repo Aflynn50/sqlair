@@ -52,20 +52,17 @@ func (re *ResultExpr) All() ([][]any, error) {
 		rs := []any{}
 		var r reflect.Value
 		for _, t := range ts {
+			r = reflect.New(t).Elem()
+
 			if t.Kind() == reflect.Map {
-				m := &M{}
-				rm := reflect.ValueOf(m)
-				r = rm.Elem()
-			} else {
-				rp := reflect.New(t)
-				// We need to unwrap the struct inside the interface{}.
-				r = rp.Elem()
+				r.Set(reflect.MakeMap(t))
 			}
 
 			err := re.decodeValue(r)
 			if err != nil {
 				return [][]any{}, err
 			}
+
 			rs = append(rs, r.Interface())
 		}
 
@@ -139,14 +136,13 @@ func (re *ResultExpr) Decode(args ...any) (err error) {
 	return nil
 }
 
-// decodeValue sets the fields in the reflected struct "v" which have tags
-// corresponding to columns in current row of the query results.
+// decodeValue sets the fields in the reflected struct which have tags
+// corresponding to columns in the current row of the query results.
 func (re *ResultExpr) decodeValue(v reflect.Value) error {
 	typeFound := false
-	validM := IsValidMType(v.Type())
 
 	for i, outDest := range re.outputs {
-		if outDest.typ == v.Type() || outDest.typ.Name() == "M" && validM {
+		if outDest.typ == v.Type() {
 			typeFound = true
 			err := setValue(v, outDest.field, re.rs[i])
 			if err != nil {
@@ -195,7 +191,7 @@ func setValue(dest reflect.Value, fInfo fielder, val any) error {
 		}
 		k := reflect.ValueOf(f.name)
 		if !dest.CanSet() {
-			return fmt.Errorf("cannot set mapkey %#v", name)
+			return fmt.Errorf("cannot set map %v", dest.Type())
 		}
 		dest.SetMapIndex(k, v)
 		return nil
