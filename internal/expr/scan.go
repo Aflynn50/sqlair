@@ -21,7 +21,7 @@ func (re *ResultExpr) One(args ...any) error {
 	return nil
 }
 
-// getTypes returns the types in the order they appear in the query
+// getTypes returns the types in the order they appear in the query.
 func getTypes(ods []loc) []reflect.Type {
 	isDup := make(map[reflect.Type]bool)
 	ts := []reflect.Type{}

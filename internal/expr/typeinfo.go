@@ -128,7 +128,7 @@ func parseTag(tag string) (string, bool, error) {
 }
 
 // CheckValidMap checks whether a given reflection type is a valid map that sqlair expects,
-// and if not, then returns a relevant error message
+// and if not, then returns a relevant error message.
 func CheckValidMap(mt reflect.Type) error {
 	if mt.Kind() != reflect.Map {
 		return fmt.Errorf(`type %s is not a map`, mt.Name())
