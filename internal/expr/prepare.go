@@ -301,11 +301,11 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 				return nil, err
 			}
 
-			if !p.isInsert() {
+			if p.isInsert() {
+				sql.WriteString(genInsertSQL(inCols, &inCount))
+			} else {
 				sql.WriteString("@sqlair_" + strconv.Itoa(inCount))
 				inCount += 1
-			} else {
-				sql.WriteString(genInsertSQL(inCols, &inCount))
 			}
 			inputs = append(inputs, typeMembers...)
 		case *outputPart:
