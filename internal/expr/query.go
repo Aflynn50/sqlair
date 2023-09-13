@@ -81,17 +81,23 @@ func (pe *PreparedExpr) Query(args ...any) (ce *QueryExpr, err error) {
 				return nil, fmt.Errorf(`type %q not passed as a parameter, have: %s`, outerType.Name(), strings.Join(typeNames, ", "))
 			}
 		}
-		var val reflect.Value
+		var argVal any
 		switch tm := typeMember.(type) {
 		case *structField:
-			val = v.Field(tm.index)
+			val := v.Field(tm.index)
+			if tm.omitEmpty && val.IsZero() {
+				argVal = nil
+			} else {
+				argVal = val.Interface()
+			}
 		case *mapKey:
-			val = v.MapIndex(reflect.ValueOf(tm.name))
+			val := v.MapIndex(reflect.ValueOf(tm.name))
 			if val.Kind() == reflect.Invalid {
 				return nil, fmt.Errorf(`map %q does not contain key %q`, outerType.Name(), tm.name)
 			}
+			argVal = val.Interface()
 		}
-		qargs = append(qargs, sql.Named("sqlair_"+strconv.Itoa(i), val.Interface()))
+		qargs = append(qargs, sql.Named("sqlair_"+strconv.Itoa(i), argVal))
 	}
 	return &QueryExpr{outputs: pe.outputs, sql: pe.sql, args: qargs}, nil
 }

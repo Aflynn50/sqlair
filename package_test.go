@@ -1321,3 +1321,52 @@ func (s *PackageSuite) TestIterMethodOrder(c *C) {
 	err = iter.Close()
 	c.Assert(err, IsNil)
 }
+
+type PersonAutoID struct {
+	ID         int    `db:"id,omitempty"`
+	Fullname   string `db:"name"`
+	PostalCode int    `db:"address_id"`
+}
+
+var fredAutoId = PersonAutoID{Fullname: "Fred", PostalCode: 1000}
+var markAutoId = PersonAutoID{Fullname: "Mark", PostalCode: 1500}
+var maryAutoId = PersonAutoID{Fullname: "Mary", PostalCode: 3500}
+var daveAutoId = PersonAutoID{Fullname: "James", PostalCode: 4500}
+var allPeopleAutoId = []PersonAutoID{fredAutoId, markAutoId, maryAutoId, daveAutoId}
+
+func (s *PackageSuite) TestOmitEmpty(c *C) {
+	createPerson, err := sqlair.Prepare(`
+		CREATE TABLE personAutoID (
+			name text,
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			address_id integer,
+			email text
+		);
+	`)
+	c.Assert(err, IsNil)
+
+	db, err := createTestDB()
+	err = db.Query(nil, createPerson).Run()
+	c.Assert(err, IsNil)
+	defer dropTables(c, db, "personAutoId")
+
+	insertPerson, err := sqlair.Prepare("INSERT INTO personAutoID (*) VALUES ($PersonAutoID.*)", PersonAutoID{})
+	for _, p := range allPeopleAutoId {
+		err := db.Query(nil, insertPerson, p).Run()
+		c.Assert(err, IsNil)
+	}
+
+	outPeople := []PersonAutoID{}
+	getAllPeople, err := sqlair.Prepare("SELECT * AS &PersonAutoID.* FROM personAutoID ORDER BY id", PersonAutoID{})
+	c.Assert(err, IsNil)
+	err = db.Query(nil, getAllPeople).GetAll(&outPeople)
+	c.Assert(err, IsNil)
+
+	// Assert ID has been populated automatically and in order.
+	for i, p := range outPeople {
+		c.Assert(p.Fullname, Equals, allPeopleAutoId[i].Fullname)
+		c.Assert(p.PostalCode, Equals, allPeopleAutoId[i].PostalCode)
+		// Numeration starts at 1.
+		c.Assert(p.ID, Equals, i+1)
+	}
+}

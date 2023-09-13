@@ -301,7 +301,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 				return nil, err
 			}
 
-			if len(p.targetColumns) == 0 {
+			if !p.isInsert() {
 				sql.WriteString("@sqlair_" + strconv.Itoa(inCount))
 				inCount += 1
 			} else {
@@ -343,7 +343,8 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 
 // genInsertSQL generates the SQL for input expressions in INSERT statements.
 // For example, when inserting three columns, it would generate the string:
-//   "(col1, col2, col3) VALUES (@sqlair_1, @sqlair_2, @sqlair_3)"
+//
+//	"(col1, col2, col3) VALUES (@sqlair_1, @sqlair_2, @sqlair_3)"
 func genInsertSQL(columns []fullName, inCount *int) string {
 	var sql bytes.Buffer
 
