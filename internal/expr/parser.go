@@ -166,8 +166,8 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 	return &ParsedExpr{queryParts}, nil
 }
 
-// minParenLevel represents the a parenthese level for the parse to stop
-// parsing at. If valid is set to false then there is no minimum level.
+// minParenLevel represents a parentheses level for the parse to stop
+// parsing at. If set is false then there is no minimum level.
 type minParenLevel struct {
 	parenLevel int
 	set        bool
