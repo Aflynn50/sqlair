@@ -60,16 +60,26 @@ func starCount(fns []fullName) int {
 	return s
 }
 
-// prepareInput checks that the input expression corresponds to a known type.
-func prepareInput(ti typeNameToInfo, p *inputPart) (typeMember, error) {
-	info, ok := ti[p.sourceType.prefix]
+type typeNameToInfo map[string]typeInfo
+
+func (ti typeNameToInfo) lookupInfo(typeName string) (typeInfo, error) {
+	info, ok := ti[typeName]
 	if !ok {
 		ts := getKeys(ti)
 		if len(ts) == 0 {
-			return nil, fmt.Errorf(`type %q not passed as a parameter`, p.sourceType.prefix)
+			return nil, fmt.Errorf(`type %q not passed as a parameter`, typeName)
 		} else {
-			return nil, fmt.Errorf(`type %q not passed as a parameter, have: %s`, p.sourceType.prefix, strings.Join(ts, ", "))
+			return nil, fmt.Errorf(`type %q not passed as a parameter, have: %s`, typeName, strings.Join(ts, ", "))
 		}
+	}
+	return info, nil
+}
+
+// prepareInput checks that the input expression corresponds to a known type.
+func prepareInput(ti typeNameToInfo, p *inputPart) (typeMember, error) {
+	info, err := ti.lookupInfo(p.sourceType.prefix)
+	if err != nil {
+		return nil, err
 	}
 	switch info := info.(type) {
 	case *mapInfo:
@@ -101,19 +111,6 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 	var ok bool
 	var err error
 
-	fetchInfo := func(typeName string) (typeInfo, error) {
-		info, ok := ti[typeName]
-		if !ok {
-			ts := getKeys(ti)
-			if len(ts) == 0 {
-				return nil, fmt.Errorf(`type %q not passed as a parameter`, typeName)
-			} else {
-				return nil, fmt.Errorf(`type %q not passed as a parameter, have: %s`, typeName, strings.Join(ts, ", "))
-			}
-		}
-		return info, nil
-	}
-
 	addColumns := func(info typeInfo, tag string, column fullName) error {
 		var tm typeMember
 		switch info := info.(type) {
@@ -130,25 +127,6 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 		return nil
 	}
 
-	// Case 1: Function column e.g. "max(10,20) AS &P.id".
-	if p.funcCol {
-		// Output expressions containing functions do not save the columns in
-		// the output expression. This is because the function itself may
-		// contain input expressions.
-		if numColumns != 0 {
-			return nil, nil, fmt.Errorf("internal error: func output expression has unexpected columns")
-		}
-		// Output expressions containing functions are limited to only a single
-		// type. To include more than one function in a query multiple output
-		// expressions can be used.
-		if numTypes != 1 {
-			return nil, nil, fmt.Errorf("internal error: func output expression has more than one type")
-		}
-		if p.targetTypes[0].name == "*" {
-			return nil, nil, fmt.Errorf("cannot use sql function with asterisk in output expression: %q", p.raw)
-		}
-	}
-
 	// Case 2: Generated columns e.g. "* AS (&P.*, &A.id)" or "&P.*".
 	if numColumns == 0 || (numColumns == 1 && starColumns == 1) {
 		pref := ""
@@ -158,7 +136,7 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 		}
 
 		for _, t := range p.targetTypes {
-			if info, err = fetchInfo(t.prefix); err != nil {
+			if info, err = ti.lookupInfo(t.prefix); err != nil {
 				return nil, nil, err
 			}
 			// Generate asterisk columns.
@@ -189,7 +167,7 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 
 	// Case 3: Explicit columns, single asterisk type e.g. "(col1, t.col2) AS &P.*".
 	if starTypes == 1 && numTypes == 1 {
-		if info, err = fetchInfo(p.targetTypes[0].prefix); err != nil {
+		if info, err = ti.lookupInfo(p.targetTypes[0].prefix); err != nil {
 			return nil, nil, err
 		}
 		for _, c := range p.sourceColumns {
@@ -206,7 +184,7 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 	if numColumns == numTypes {
 		for i, c := range p.sourceColumns {
 			t := p.targetTypes[i]
-			if info, err = fetchInfo(t.prefix); err != nil {
+			if info, err = ti.lookupInfo(t.prefix); err != nil {
 				return nil, nil, err
 			}
 
@@ -221,7 +199,30 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 	return outCols, typeMembers, nil
 }
 
-type typeNameToInfo map[string]typeInfo
+// prepareFunc checks that the output type for the function correspond to a
+// known type.
+func prepareFunc(ti typeNameToInfo, p *funcPart) (typeMember, error) {
+	if p.targetType.name == "*" {
+		return nil, fmt.Errorf("cannot use sql function with asterisk in output expression: %q", p.raw)
+	}
+
+	info, err := ti.lookupInfo(p.targetType.prefix)
+	if err != nil {
+		return nil, err
+	}
+	var tm typeMember
+	var ok bool
+	switch info := info.(type) {
+	case *structInfo:
+		tm, ok = info.tagToField[p.targetType.name]
+		if !ok {
+			return nil, fmt.Errorf(`type %q has no %q db tag`, info.typ().Name(), p.targetType.name)
+		}
+	case *mapInfo:
+		tm = &mapKey{name: p.targetType.name, mapType: info.typ()}
+	}
+	return tm, nil
+}
 
 // Prepare takes a parsed expression and struct instantiations of all the types
 // mentioned in it.
@@ -300,10 +301,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			}
 
 			for i, c := range outCols {
-				// If the output part contains expressions
-				if !p.funcCol {
-					sql.WriteString(c.String())
-				}
+				sql.WriteString(c.String())
 				sql.WriteString(" AS ")
 				sql.WriteString(markerName(outCount))
 				if i != len(outCols)-1 {
@@ -312,6 +310,15 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 				outCount++
 			}
 			outputs = append(outputs, typeMembers...)
+		case *funcPart:
+			tm, err := prepareFunc(ti, p)
+			if err != nil {
+				return nil, err
+			}
+			sql.WriteString(" AS ")
+			sql.WriteString(markerName(outCount))
+			outCount++
+			outputs = append(outputs, tm)
 		case *bypassPart:
 			sql.WriteString(p.chunk)
 		default:

@@ -536,7 +536,7 @@ func (p *Parser) parseTargetTypes() (types []fullName, parentheses bool, ok bool
 
 // parseOutputExpression requires that the ampersand before the identifiers must
 // be followed by a name byte.
-func (p *Parser) parseOutputExpression() (*outputPart, bool, error) {
+func (p *Parser) parseOutputExpression() (queryPart, bool, error) {
 	start := p.pos
 
 	// Case 1: There are no columns e.g. "&Person.*".
@@ -562,11 +562,9 @@ func (p *Parser) parseOutputExpression() (*outputPart, bool, error) {
 			if targetType, ok, err := p.parseTargetType(); err != nil {
 				return nil, false, err
 			} else if ok {
-				return &outputPart{
-					funcCol:       true,
-					sourceColumns: []fullName{},
-					targetTypes:   []fullName{targetType},
-					raw:           p.input[start:p.pos],
+				return &funcPart{
+					targetType: targetType,
+					raw:        p.input[start:p.pos],
 				}, true, nil
 			}
 		}

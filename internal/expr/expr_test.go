@@ -310,19 +310,19 @@ AND z = @sqlair_0 -- The line with $Person.id on it
 }, {
 	"functions",
 	`SELECT max(AVG(id), AVG(address_id), length("((((''""((")) AS &M.avg, IFNULL(name, "Mr &Person.id of $M.name") AS &M.name, random() AS &M.random FROM person`,
-	`[Bypass[SELECT max(AVG(id), AVG(address_id), length("((((''""(("))] Output[[] [M.avg]] Bypass[, IFNULL(name, "Mr &Person.id of $M.name")] Output[[] [M.name]] Bypass[, random()] Output[[] [M.random]] Bypass[ FROM person]]`,
+	`[Bypass[SELECT max(AVG(id), AVG(address_id), length("((((''""(("))] Func[M.avg] Bypass[, IFNULL(name, "Mr &Person.id of $M.name")] Func[M.name] Bypass[, random()] Func[M.random] Bypass[ FROM person]]`,
 	[]any{sqlair.M{}},
 	`SELECT max(AVG(id), AVG(address_id), length("((((''""((")) AS _sqlair_0, IFNULL(name, "Mr &Person.id of $M.name") AS _sqlair_1, random() AS _sqlair_2 FROM person`,
 }, {
 	"function with nested input",
 	`SELECT max($Person.id, 20) AS &Manager.id FROM person`,
-	`[Bypass[SELECT max(] Input[Person.id] Bypass[, 20)] Output[[] [Manager.id]] Bypass[ FROM person]]`,
+	`[Bypass[SELECT max(] Input[Person.id] Bypass[, 20)] Func[Manager.id] Bypass[ FROM person]]`,
 	[]any{Person{}, Manager{}},
 	`SELECT max(@sqlair_0, 20) AS _sqlair_0 FROM person`,
 }, {
 	"function with multiple nested input",
 	`SELECT manager_id AS &Manager.id, avg(30, length($Person.name), max($Person.id, 20)) AS &Person.id FROM person`,
-	`[Bypass[SELECT ] Output[[manager_id] [Manager.id]] Bypass[, avg(30, length(] Input[Person.name] Bypass[), max(] Input[Person.id] Bypass[, 20))] Output[[] [Person.id]] Bypass[ FROM person]]`,
+	`[Bypass[SELECT ] Output[[manager_id] [Manager.id]] Bypass[, avg(30, length(] Input[Person.name] Bypass[), max(] Input[Person.id] Bypass[, 20))] Func[Person.id] Bypass[ FROM person]]`,
 	[]any{Person{}, Manager{}},
 	`SELECT manager_id AS _sqlair_0, avg(30, length(@sqlair_0), max(@sqlair_1, 20)) AS _sqlair_1 FROM person`,
 }}
