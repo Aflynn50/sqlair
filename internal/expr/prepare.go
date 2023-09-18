@@ -300,6 +300,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			}
 
 			for i, c := range outCols {
+				// If the output part contains expressions
 				if !p.funcCol {
 					sql.WriteString(c.String())
 				}

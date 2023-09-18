@@ -13,9 +13,9 @@ type Parser struct {
 	prevPart int
 	// partStart is the value of pos just before we started parsing the part
 	// under pos. We maintain partStart >= prevPart.
-	partStart    int
-	parts        []queryPart
-	bracketLevel int
+	partStart  int
+	parts      []queryPart
+	parenLevel int
 }
 
 func NewParser() *Parser {
@@ -29,31 +29,31 @@ func (p *Parser) init(input string) {
 	p.prevPart = 0
 	p.partStart = 0
 	p.parts = []queryPart{}
-	p.bracketLevel = 0
+	p.parenLevel = 0
 }
 
 // A checkpoint struct for saving parser state to restore later. We only use
 // a checkpoint within an attempted parsing of an part, not at a higher level
 // since we don't keep track of the parts in the checkpoint.
 type checkpoint struct {
-	parser       *Parser
-	pos          int
-	prevPart     int
-	partStart    int
-	parts        []queryPart
-	bracketLevel int
+	parser     *Parser
+	pos        int
+	prevPart   int
+	partStart  int
+	parts      []queryPart
+	parenLevel int
 }
 
 // save takes a snapshot of the state of the parser and returns a pointer to a
 // checkpoint that represents it.
 func (p *Parser) save() *checkpoint {
 	return &checkpoint{
-		parser:       p,
-		pos:          p.pos,
-		prevPart:     p.prevPart,
-		partStart:    p.partStart,
-		parts:        p.parts,
-		bracketLevel: p.bracketLevel,
+		parser:     p,
+		pos:        p.pos,
+		prevPart:   p.prevPart,
+		partStart:  p.partStart,
+		parts:      p.parts,
+		parenLevel: p.parenLevel,
 	}
 }
 
@@ -64,7 +64,7 @@ func (cp *checkpoint) restore() {
 	cp.parser.prevPart = cp.prevPart
 	cp.parser.partStart = cp.partStart
 	cp.parser.parts = cp.parts
-	cp.parser.bracketLevel = cp.bracketLevel
+	cp.parser.parenLevel = cp.parenLevel
 }
 
 // ParsedExpr is the AST representation of an SQL expression. The AST is made up
@@ -104,21 +104,14 @@ func (p *Parser) add(part queryPart) {
 			&bypassPart{p.input[p.prevPart:p.partStart]})
 	}
 
-	p.parts = append(p.parts, part)
+	if part != nil {
+		p.parts = append(p.parts, part)
+	}
 
 	// Save this position at the end of the part.
 	p.prevPart = p.pos
 	// Ensure that partStart >= prevPart.
 	p.partStart = p.pos
-}
-
-// addRemainder adds a bypass part begining at prevPart and ending at
-// partStart.
-func (p *Parser) addRemainder() {
-	if p.prevPart != p.partStart {
-		p.parts = append(p.parts, &bypassPart{p.input[p.prevPart:p.partStart]})
-	}
-	p.prevPart = p.partStart
 }
 
 // skipComment jumps over comments as defined by the SQLite spec.
@@ -166,28 +159,37 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 	}()
 
 	p.init(input)
-	queryParts, err := p.parse(optionalBracketLevel{on: false})
+	queryParts, err := p.parse(minParenLevel{on: false})
 	if err != nil {
 		return nil, err
 	}
 	return &ParsedExpr{queryParts}, nil
 }
 
-type optionalBracketLevel struct {
-	bracketLevel int
-	on           bool
+// minParenLevel represents the a parenthese level for the parse to stop
+// parsing at. If on is set to false then there is no minimum level.
+type minParenLevel struct {
+	parenLevel int
+	on         bool
 }
 
-// parse parses the input until p.bracketLevel==minBracketLevel at a position
-// outside of an expression.
-func (p *Parser) parse(bl optionalBracketLevel) ([]queryPart, error) {
+// isMinLevel indicates if the parser should stop parsing at parserLevel.
+func (pl *minParenLevel) isMinLevel(parserLevel int) bool {
+	if pl.on {
+		return pl.parenLevel == parserLevel
+	}
+	return false
+}
+
+// parse parses the input until p.parenLevel is equal to minParenLevel.
+func (p *Parser) parse(pl minParenLevel) ([]queryPart, error) {
 	for {
 		// Advance the parser to the start of the next expression.
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
 
-		if p.pos == len(p.input) || (bl.on && bl.bracketLevel == p.bracketLevel) {
+		if p.pos == len(p.input) || pl.isMinLevel(p.parenLevel) {
 			break
 		}
 
@@ -205,7 +207,7 @@ func (p *Parser) parse(bl optionalBracketLevel) ([]queryPart, error) {
 			continue
 		}
 	}
-	p.addRemainder()
+	p.add(nil)
 	return p.parts, nil
 }
 
@@ -231,37 +233,16 @@ loop:
 		case ' ', '\t', '\n', '\r', '=', ',', '[', '>', '<', '+', '-', '*', '/', '|', '%':
 			break loop
 		case '(':
-			p.bracketLevel++
+			p.parenLevel++
 			break loop
 		case ')':
-			p.bracketLevel--
+			p.parenLevel--
 			break loop
 		}
 	}
 
 	p.partStart = p.pos
 	return nil
-}
-
-// startSubpart creates a checkpoint and prepares to parse a nested part.
-// The checkpoint can be used to revert the state of the parser, but to parse
-// the sub-part collectSubpart must be called.
-func (p *Parser) startSubpart() *checkpoint {
-	scp := p.save()
-	// Clear parser state and set the input to the start of the sub-part.
-	p.init(p.input[p.pos:])
-	return scp
-}
-
-// collectSubpart returns the nested expression parsed since the corresponding
-// sub-part checkpoint, at startSubpart, and restores the parser to its new
-// position.
-func (p *Parser) collectSubpart(scp *checkpoint) *ParsedExpr {
-	pos := p.pos
-	pe := &ParsedExpr{p.parts}
-	scp.restore()
-	p.pos += pos
-	return pe
 }
 
 // skipStringLiteral jumps over single and double quoted sections of input.
@@ -434,15 +415,14 @@ func (p *Parser) parseColumn() (fullName, bool, error) {
 }
 
 // parseFunc returns true if a SQL function is detected. It recurses into the
-// parser to do this taking advantage of the bracketLevels. It does not return
-// a parsed version of the function because the parsed function is added
-// implicitly to p.parts by the p.parse function.
+// parser so the parsed output is added implicitly and not returned by
+// parseFunc.
 func (p *Parser) parseFunc() (bool, error) {
 	cp := p.save()
-	bracketLevel := p.bracketLevel
+	parenLevel := p.parenLevel
 	if p.skipName() && p.peekByte('(') {
-		// The queryParts are added to p.parts.
-		_, err := p.parse(optionalBracketLevel{on: true, bracketLevel: bracketLevel})
+		// The queryParts are added to p.parts by parse.
+		_, err := p.parse(minParenLevel{on: true, parenLevel: parenLevel})
 		if err != nil {
 			cp.restore()
 			return false, err
@@ -484,7 +464,7 @@ func (p *Parser) parseGoFullName() (fullName, bool, error) {
 
 // parseList takes a parsing function that returns a fullName and parses a
 // bracketed, comma seperated, list.
-func parseList[T any](p *Parser, parseFn func(p *Parser) (T, bool, error)) ([]T, bool, error) {
+func (p *Parser) parseList(parseFn func(p *Parser) (fullName, bool, error)) ([]fullName, bool, error) {
 	cp := p.save()
 	if !p.skipByte('(') {
 		return nil, false, nil
@@ -492,7 +472,7 @@ func parseList[T any](p *Parser, parseFn func(p *Parser) (T, bool, error)) ([]T,
 
 	parenPos := p.pos
 	nextItem := true
-	var objs []T
+	var objs []fullName
 	for i := 0; nextItem; i++ {
 		p.skipBlanks()
 		if obj, ok, err := parseFn(p); ok {
@@ -518,8 +498,8 @@ func parseList[T any](p *Parser, parseFn func(p *Parser) (T, bool, error)) ([]T,
 	return nil, false, fmt.Errorf("column %d: missing closing parentheses", parenPos)
 }
 
-// parseColumns parses a list of columns. For lists of more than one column the
-// columns must be enclosed in brackets e.g. "(col1, col2) AS &Person.*".
+// parseColumns parses a single column or a list of columns. Lists must be
+// enclosed in parentheses.
 func (p *Parser) parseColumns() (cols []fullName, parentheses bool, ok bool) {
 	// Case 1: A single column e.g. "p.name".
 	if col, ok, _ := p.parseColumn(); ok {
@@ -527,7 +507,7 @@ func (p *Parser) parseColumns() (cols []fullName, parentheses bool, ok bool) {
 	}
 
 	// Case 2: Multiple columns e.g. "(p.name, p.id)".
-	if cols, ok, _ := parseList(p, (*Parser).parseColumn); ok {
+	if cols, ok, _ := p.parseList((*Parser).parseColumn); ok {
 		return cols, true, true
 	}
 
@@ -545,7 +525,7 @@ func (p *Parser) parseTargetTypes() (types []fullName, parentheses bool, ok bool
 	}
 
 	// Case 2: Multiple types e.g. "(&Person.name, &Person.id)".
-	if targetTypes, ok, err := parseList(p, (*Parser).parseTargetType); err != nil {
+	if targetTypes, ok, err := p.parseList((*Parser).parseTargetType); err != nil {
 		return nil, true, false, err
 	} else if ok {
 		return targetTypes, true, true, nil
