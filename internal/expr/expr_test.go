@@ -536,11 +536,15 @@ func (s *ExprSuite) TestPrepareErrors(c *C) {
 	}, {
 		query:       "SELECT name FROM person WHERE id IN ($M.*)",
 		prepareArgs: []any{M{}},
-		err:         `cannot prepare expression: cannot use map "M" with asterisk in output expression: IN ($M.*)`,
+		err:         `cannot prepare expression: cannot use map "M" with asterisk in input expression: IN ($M.*)`,
 	}, {
 		query:       "SELECT name FROM person WHERE id IN ($Person.*)",
 		prepareArgs: []any{Person{}},
-		err:         `cannot prepare expression: cannot use struct "Person" with asterisk in output expression: IN ($Person.*)`,
+		err:         `cannot prepare expression: cannot use struct "Person" with asterisk in input expression: IN ($Person.*)`,
+	}, {
+		query:       "SELECT &S.* FROM t",
+		prepareArgs: []any{S{}},
+		err:         `cannot prepare expression: cannot use slice type "S" in output expression`,
 	}}
 
 	for i, test := range tests {
