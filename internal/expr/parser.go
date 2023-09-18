@@ -159,7 +159,7 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 	}()
 
 	p.init(input)
-	queryParts, err := p.parse(minParenLevel{on: false})
+	queryParts, err := p.parse(minParenLevel{set: false})
 	if err != nil {
 		return nil, err
 	}
@@ -167,15 +167,15 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 }
 
 // minParenLevel represents the a parenthese level for the parse to stop
-// parsing at. If on is set to false then there is no minimum level.
+// parsing at. If valid is set to false then there is no minimum level.
 type minParenLevel struct {
 	parenLevel int
-	on         bool
+	set        bool
 }
 
 // isMinLevel indicates if the parser should stop parsing at parserLevel.
 func (pl *minParenLevel) isMinLevel(parserLevel int) bool {
-	if pl.on {
+	if pl.set {
 		return pl.parenLevel == parserLevel
 	}
 	return false
@@ -422,7 +422,7 @@ func (p *Parser) parseFunc() (bool, error) {
 	parenLevel := p.parenLevel
 	if p.skipName() && p.peekByte('(') {
 		// The queryParts are added to p.parts by parse.
-		_, err := p.parse(minParenLevel{on: true, parenLevel: parenLevel})
+		_, err := p.parse(minParenLevel{set: true, parenLevel: parenLevel})
 		if err != nil {
 			cp.restore()
 			return false, err
