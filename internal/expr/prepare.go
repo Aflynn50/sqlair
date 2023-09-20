@@ -12,7 +12,7 @@ import (
 // PreparedExpr contains an SQL expression that is ready for execution.
 type PreparedExpr struct {
 	outputs []typeMember
-	inputs  []typeMember
+	inputs  []inputTypeMember
 	sql     string
 }
 
@@ -189,7 +189,8 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) ([]fullName, []typeMember, 
 // isStandaloneInput returns true if the input expression occurs on its own,
 // not inside an INSERT statement.
 // For example:
-//   "... WHERE x = $P.name"
+//
+//	"... WHERE x = $P.name"
 func isStandaloneInput(p *inputPart) bool {
 	return len(p.targetColumns) == 0
 }
@@ -202,14 +203,15 @@ func hasMultipleTypes(p *inputPart) bool {
 
 // hasStarTypes returns true if the input expression has an asterisk.
 // For example:
-//   "$P.*"
+//
+//	"$P.*"
 func hasStarTypes(p *inputPart) bool {
 	return starCount(p.sourceTypes) > 0
 }
 
 // prepareInput checks that the input expression is correctly formatted,
 // corresponds to known types, and then generates input columns and values.
-func prepareInput(ti typeNameToInfo, p *inputPart) (inCols []fullName, typeMembers []typeMember, err error) {
+func prepareInput(ti typeNameToInfo, p *inputPart) (inCols []fullName, inputTypeMembers []inputTypeMember, err error) {
 	defer func() {
 		if err != nil {
 			err = fmt.Errorf("input expression: %s: %s", err, p.raw)
@@ -234,7 +236,7 @@ func prepareInput(ti typeNameToInfo, p *inputPart) (inCols []fullName, typeMembe
 		if err != nil {
 			return nil, nil, err
 		}
-		return []fullName{}, []typeMember{tm}, nil
+		return []fullName{}, []inputTypeMember{{typeMember: tm, isInsert: false}}, nil
 	}
 
 	// Prepare input expressions in insert statements.
@@ -242,9 +244,14 @@ func prepareInput(ti typeNameToInfo, p *inputPart) (inCols []fullName, typeMembe
 	//  "(*) VALUES ($P.*, $A.id)"
 	//  "(col1, col2) VALUES ($P.*)"
 	//  "(col1, col2) VALUES ($P.name, $A.id)"
+	var typeMembers []typeMember
 	inCols, typeMembers, err = prepareColumnsAndTypes(ti, p.targetColumns, p.sourceTypes)
 	if err != nil {
 		return nil, nil, err
+	}
+	inputTypeMembers = make([]inputTypeMember, len(typeMembers))
+	for i, t := range typeMembers {
+		inputTypeMembers[i] = inputTypeMember{typeMember: t, isInsert: true}
 	}
 
 	columnInInput := make(map[fullName]bool)
@@ -254,7 +261,7 @@ func prepareInput(ti typeNameToInfo, p *inputPart) (inCols []fullName, typeMembe
 		}
 		columnInInput[c] = true
 	}
-	return inCols, typeMembers, nil
+	return inCols, inputTypeMembers, nil
 }
 
 // Prepare takes a parsed expression and struct instantiations of all the types
@@ -305,7 +312,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 	var outCount int
 
 	var outputs = make([]typeMember, 0)
-	var inputs = make([]typeMember, 0)
+	var inputs = make([]inputTypeMember, 0)
 
 	var typeMemberInOutputs = make(map[typeMember]bool)
 
@@ -313,7 +320,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 	for _, part := range pe.queryParts {
 		switch p := part.(type) {
 		case *inputPart:
-			inCols, typeMembers, err := prepareInput(ti, p)
+			inCols, inputTypeMembers, err := prepareInput(ti, p)
 			if err != nil {
 				return nil, err
 			}
@@ -324,7 +331,7 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 			} else {
 				sql.WriteString(genInsertSQL(inCols, &inCount))
 			}
-			inputs = append(inputs, typeMembers...)
+			inputs = append(inputs, inputTypeMembers...)
 		case *outputPart:
 			outCols, typeMembers, err := prepareOutput(ti, p)
 			if err != nil {
@@ -360,7 +367,8 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 
 // genInsertSQL generates the SQL for input expressions in INSERT statements.
 // For example, when inserting three columns, it would generate the string:
-//   "(col1, col2, col3) VALUES (@sqlair_1, @sqlair_2, @sqlair_3)"
+//
+//	"(col1, col2, col3) VALUES (@sqlair_1, @sqlair_2, @sqlair_3)"
 func genInsertSQL(columns []fullName, inCount *int) string {
 	var sql bytes.Buffer
 

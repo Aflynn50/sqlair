@@ -115,6 +115,11 @@ func (mi *mapInfo) getAllMembers() ([]typeMember, error) {
 	return nil, fmt.Errorf(`columns must be specified for map with star`)
 }
 
+type inputTypeMember struct {
+	isInsert bool
+	typeMember
+}
+
 var _ typeInfo = &mapInfo{}
 
 var cacheMutex sync.RWMutex
