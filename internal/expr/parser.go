@@ -175,10 +175,7 @@ type minParenLevel struct {
 
 // isMinLevel indicates if the parser should stop parsing at parserLevel.
 func (pl *minParenLevel) isMinLevel(parserLevel int) bool {
-	if pl.set {
-		return pl.parenLevel == parserLevel
-	}
-	return false
+	return pl.set && pl.parenLevel == parserLevel
 }
 
 // parse parses the input until p.parenLevel is equal to minParenLevel.
