@@ -13,8 +13,9 @@ type Parser struct {
 	prevPart int
 	// partStart is the value of pos just before we started parsing the part
 	// under pos. We maintain partStart >= prevPart.
-	partStart int
-	parts     []queryPart
+	partStart  int
+	parts      []queryPart
+	parenLevel int
 }
 
 func NewParser() *Parser {
@@ -28,28 +29,31 @@ func (p *Parser) init(input string) {
 	p.prevPart = 0
 	p.partStart = 0
 	p.parts = []queryPart{}
+	p.parenLevel = 0
 }
 
 // A checkpoint struct for saving parser state to restore later. We only use
 // a checkpoint within an attempted parsing of an part, not at a higher level
 // since we don't keep track of the parts in the checkpoint.
 type checkpoint struct {
-	parser    *Parser
-	pos       int
-	prevPart  int
-	partStart int
-	parts     []queryPart
+	parser     *Parser
+	pos        int
+	prevPart   int
+	partStart  int
+	parts      []queryPart
+	parenLevel int
 }
 
 // save takes a snapshot of the state of the parser and returns a pointer to a
 // checkpoint that represents it.
 func (p *Parser) save() *checkpoint {
 	return &checkpoint{
-		parser:    p,
-		pos:       p.pos,
-		prevPart:  p.prevPart,
-		partStart: p.partStart,
-		parts:     p.parts,
+		parser:     p,
+		pos:        p.pos,
+		prevPart:   p.prevPart,
+		partStart:  p.partStart,
+		parts:      p.parts,
+		parenLevel: p.parenLevel,
 	}
 }
 
@@ -60,6 +64,7 @@ func (cp *checkpoint) restore() {
 	cp.parser.prevPart = cp.prevPart
 	cp.parser.partStart = cp.partStart
 	cp.parser.parts = cp.parts
+	cp.parser.parenLevel = cp.parenLevel
 }
 
 // ParsedExpr is the AST representation of an SQL expression. The AST is made up
@@ -154,16 +159,34 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 	}()
 
 	p.init(input)
+	queryParts, err := p.parse(minParenLevel{set: false})
+	if err != nil {
+		return nil, err
+	}
+	return &ParsedExpr{queryParts}, nil
+}
 
+// minParenLevel represents a parentheses level for the parse to stop
+// parsing at. If set is false then there is no minimum level.
+type minParenLevel struct {
+	parenLevel int
+	set        bool
+}
+
+// isMinLevel indicates if the parser should stop parsing at parserLevel.
+func (pl *minParenLevel) isMinLevel(parserLevel int) bool {
+	return pl.set && pl.parenLevel == parserLevel
+}
+
+// parse parses the input until p.parenLevel is equal to minParenLevel.
+func (p *Parser) parse(pl minParenLevel) ([]queryPart, error) {
 	for {
 		// Advance the parser to the start of the next expression.
 		if err := p.advance(); err != nil {
 			return nil, err
 		}
 
-		p.partStart = p.pos
-
-		if p.pos == len(p.input) {
+		if p.pos == len(p.input) || pl.isMinLevel(p.parenLevel) {
 			break
 		}
 
@@ -181,10 +204,8 @@ func (p *Parser) Parse(input string) (expr *ParsedExpr, err error) {
 			continue
 		}
 	}
-
-	// Add any remaining unparsed string input to the parser.
 	p.add(nil)
-	return &ParsedExpr{p.parts}, nil
+	return p.parts, nil
 }
 
 // advance increments p.pos until it reaches content that might preceed a token
@@ -206,15 +227,19 @@ loop:
 		switch p.input[p.pos-1] {
 		// If the preceding byte is one of these then we might be at the start
 		// of an expression.
-		case ' ', '\t', '\n', '\r', '=', ',', '(', '[', '>', '<', '+', '-', '*', '/', '|', '%':
+		case ' ', '\t', '\n', '\r', '=', ',', '[', '>', '<', '+', '-', '*', '/', '|', '%':
+			break loop
+		case '(':
+			p.parenLevel++
+			break loop
+		case ')':
+			p.parenLevel--
 			break loop
 		}
 	}
 
-	p.skipBlanks()
-
+	p.partStart = p.pos
 	return nil
-
 }
 
 // skipStringLiteral jumps over single and double quoted sections of input.
@@ -386,6 +411,25 @@ func (p *Parser) parseColumn() (fullName, bool, error) {
 	return fullName{}, false, nil
 }
 
+// parseFunc returns true if a SQL function is detected. It recurses into the
+// parser so the parsed output is added implicitly and not returned by
+// parseFunc.
+func (p *Parser) parseFunc() (bool, error) {
+	cp := p.save()
+	parenLevel := p.parenLevel
+	if p.skipName() && p.peekByte('(') {
+		// The queryParts are added to p.parts by parse.
+		_, err := p.parse(minParenLevel{set: true, parenLevel: parenLevel})
+		if err != nil {
+			cp.restore()
+			return false, err
+		}
+		return true, nil
+	}
+	cp.restore()
+	return false, nil
+}
+
 func (p *Parser) parseTargetType() (fullName, bool, error) {
 	if p.skipByte('&') {
 		return p.parseGoFullName()
@@ -489,7 +533,7 @@ func (p *Parser) parseTargetTypes() (types []fullName, parentheses bool, ok bool
 
 // parseOutputExpression requires that the ampersand before the identifiers must
 // be followed by a name byte.
-func (p *Parser) parseOutputExpression() (*outputPart, bool, error) {
+func (p *Parser) parseOutputExpression() (queryPart, bool, error) {
 	start := p.pos
 
 	// Case 1: There are no columns e.g. "&Person.*".
@@ -505,7 +549,26 @@ func (p *Parser) parseOutputExpression() (*outputPart, bool, error) {
 
 	cp := p.save()
 
-	// Case 2: There are columns e.g. "p.col1 AS &Person.*".
+	// Case 2: Function column e.g. "max(20, $Person.name) AS &Person.id".
+	if ok, err := p.parseFunc(); err != nil {
+		return nil, false, err
+	} else if ok {
+		p.skipBlanks()
+		if p.skipString("AS") {
+			p.skipBlanks()
+			if targetType, ok, err := p.parseTargetType(); err != nil {
+				return nil, false, err
+			} else if ok {
+				return &funcPart{
+					targetType: targetType,
+					raw:        p.input[start:p.pos],
+				}, true, nil
+			}
+		}
+	}
+	cp.restore()
+
+	// Case 3: There are columns e.g. "p.col1 AS &Person.*".
 	if cols, parenCols, ok := p.parseColumns(); ok {
 		p.skipBlanks()
 		if p.skipString("AS") {

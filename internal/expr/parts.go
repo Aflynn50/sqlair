@@ -56,6 +56,21 @@ func (p *outputPart) String() string {
 
 func (p *outputPart) part() {}
 
+// funcPart represents a SQL function along with a target type that the result
+// will be read into. The SQL function must occur in the parts before the
+// funcPart in the parsed expression. The SQL function may contain input parts
+// so cannot be stored in the funcPart without nesting parts.
+type funcPart struct {
+	targetType fullName
+	raw        string
+}
+
+func (p *funcPart) String() string {
+	return fmt.Sprintf("Func[%+v]", p.targetType)
+}
+
+func (p *funcPart) part() {}
+
 // bypassPart represents a part of the expression that we want to pass to the
 // backend database verbatim.
 type bypassPart struct {

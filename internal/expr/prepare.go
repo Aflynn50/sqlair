@@ -60,6 +60,22 @@ func starCount(fns []fullName) int {
 	return s
 }
 
+type typeNameToInfo map[string]typeInfo
+
+func (ti typeNameToInfo) lookupInfo(typeName string) (typeInfo, error) {
+	info, ok := ti[typeName]
+	if !ok {
+		ts := getKeys(ti)
+		if len(ts) == 0 {
+			return nil, fmt.Errorf(`type %q not passed as a parameter`, typeName)
+		} else {
+			// "%s" is used instead of %q to correctly print double quotes within the joined string.
+			return nil, fmt.Errorf(`type %q not passed as a parameter (have "%s")`, typeName, strings.Join(ts, `", "`))
+		}
+	}
+	return info, nil
+}
+
 // prepareInput checks that the input expression corresponds to a known type.
 func prepareInput(ti typeNameToInfo, p *inputPart) (tm typeMember, err error) {
 	defer func() {
@@ -67,17 +83,10 @@ func prepareInput(ti typeNameToInfo, p *inputPart) (tm typeMember, err error) {
 			err = fmt.Errorf("input expression: %s: %s", err, p.raw)
 		}
 	}()
-	info, ok := ti[p.sourceType.prefix]
-	if !ok {
-		ts := getKeys(ti)
-		if len(ts) == 0 {
-			return nil, fmt.Errorf(`type %q not passed as a parameter`, p.sourceType.prefix)
-		} else {
-			// "%s" is used instead of %q to correctly print double quotes within the joined string.
-			return nil, fmt.Errorf(`type %q not passed as a parameter (have "%s")`, p.sourceType.prefix, strings.Join(ts, `", "`))
-		}
+	info, err := ti.lookupInfo(p.sourceType.prefix)
+	if err != nil {
+		return nil, err
 	}
-
 	tm, err = info.typeMember(p.sourceType.name)
 	if err != nil {
 		return nil, err
@@ -102,20 +111,6 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) (outCols []fullName, typeMe
 	// Check target struct type and its tags are valid.
 	var info typeInfo
 
-	fetchInfo := func(typeName string) (typeInfo, error) {
-		info, ok := ti[typeName]
-		if !ok {
-			ts := getKeys(ti)
-			if len(ts) == 0 {
-				return nil, fmt.Errorf(`type %q not passed as a parameter`, typeName)
-			} else {
-				// "%s" is used instead of %q to correctly print double quotes within the joined string.
-				return nil, fmt.Errorf(`type %q not passed as a parameter (have "%s")`, typeName, strings.Join(ts, `", "`))
-			}
-		}
-		return info, nil
-	}
-
 	// Case 1: Generated columns e.g. "* AS (&P.*, &A.id)" or "&P.*".
 	if numColumns == 0 || (numColumns == 1 && starColumns == 1) {
 		pref := ""
@@ -125,7 +120,7 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) (outCols []fullName, typeMe
 		}
 
 		for _, t := range p.targetTypes {
-			if info, err = fetchInfo(t.prefix); err != nil {
+			if info, err = ti.lookupInfo(t.prefix); err != nil {
 				return nil, nil, err
 			}
 			if t.name == "*" {
@@ -155,7 +150,7 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) (outCols []fullName, typeMe
 
 	// Case 2: Explicit columns, single asterisk type e.g. "(col1, t.col2) AS &P.*".
 	if starTypes == 1 && numTypes == 1 {
-		if info, err = fetchInfo(p.targetTypes[0].prefix); err != nil {
+		if info, err = ti.lookupInfo(p.targetTypes[0].prefix); err != nil {
 			return nil, nil, err
 		}
 		for _, c := range p.sourceColumns {
@@ -175,7 +170,7 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) (outCols []fullName, typeMe
 	if numColumns == numTypes {
 		for i, c := range p.sourceColumns {
 			t := p.targetTypes[i]
-			if info, err = fetchInfo(t.prefix); err != nil {
+			if info, err = ti.lookupInfo(t.prefix); err != nil {
 				return nil, nil, err
 			}
 			tm, err := info.typeMember(t.name)
@@ -192,7 +187,30 @@ func prepareOutput(ti typeNameToInfo, p *outputPart) (outCols []fullName, typeMe
 	return outCols, typeMembers, nil
 }
 
-type typeNameToInfo map[string]typeInfo
+// prepareFunc checks that the output type for the function correspond to a
+// known type.
+func prepareFunc(ti typeNameToInfo, p *funcPart) (typeMember, error) {
+	if p.targetType.name == "*" {
+		return nil, fmt.Errorf("cannot use sql function with asterisk in output expression: %q", p.raw)
+	}
+
+	info, err := ti.lookupInfo(p.targetType.prefix)
+	if err != nil {
+		return nil, err
+	}
+	var tm typeMember
+	var ok bool
+	switch info := info.(type) {
+	case *structInfo:
+		tm, ok = info.tagToField[p.targetType.name]
+		if !ok {
+			return nil, fmt.Errorf(`type %q has no %q db tag`, info.typ().Name(), p.targetType.name)
+		}
+	case *mapInfo:
+		tm = &mapKey{name: p.targetType.name, mapType: info.typ()}
+	}
+	return tm, nil
+}
 
 // Prepare takes a parsed expression and struct instantiations of all the types
 // mentioned in it.
@@ -280,6 +298,15 @@ func (pe *ParsedExpr) Prepare(args ...any) (expr *PreparedExpr, err error) {
 				outCount++
 			}
 			outputs = append(outputs, typeMembers...)
+		case *funcPart:
+			tm, err := prepareFunc(ti, p)
+			if err != nil {
+				return nil, err
+			}
+			sql.WriteString(" AS ")
+			sql.WriteString(markerName(outCount))
+			outCount++
+			outputs = append(outputs, tm)
 		case *bypassPart:
 			sql.WriteString(p.chunk)
 		default:
