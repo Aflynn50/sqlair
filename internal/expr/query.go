@@ -21,6 +21,81 @@ func (qe *QueryExpr) HasOutputs() bool {
 	return len(qe.outputs) > 0
 }
 
+type visitor interface {
+	visitInput(*preparedInput) error
+	visitOutput(*preparedOutput) error
+	visitBypass(*preparedBypass) error
+}
+
+type queryGenerator struct {
+	typeToValue map[reflect.Type]reflect.Value
+	typeNames   []string
+
+	inCount  int
+	outCount int
+
+	typeUsed  map[reflect.Type]bool
+	sql       bytes.Buffer
+	queryArgs []any
+	outputs   []typeMember
+}
+
+func (qg *queryGenerator) visitOutput(pp *preparedOutput) error {
+	for i, oc := range pp.outputColumns {
+		qg.sql.WriteString(oc.sql)
+		qg.sql.WriteString(" AS ")
+		qg.sql.WriteString(markerName(qg.outCount))
+		if i != len(pp.outputColumns)-1 {
+			qg.sql.WriteString(", ")
+		}
+		qg.outCount++
+		qg.outputs = append(qg.outputs, oc.tm)
+	}
+	return nil
+}
+
+func (qg *queryGenerator) visitInput(pp *preparedInput) error {
+	// Find arg associated with input.
+	typeMember := pp.input
+	outerType := typeMember.outerType()
+	v, ok := qg.typeToValue[outerType]
+	if !ok {
+		// Get the types of all args for checkShadowType.
+		argTypes := make([]reflect.Type, 0, len(qg.typeToValue))
+		for argType := range qg.typeToValue {
+			argTypes = append(argTypes, argType)
+		}
+		if err := checkShadowedType(outerType, argTypes); err != nil {
+			return err
+		}
+		return typeMissingError(outerType.Name(), qg.typeNames)
+	}
+	qg.typeUsed[outerType] = true
+
+	// Retrieve query parameter.
+	var val reflect.Value
+	switch tm := typeMember.(type) {
+	case *structField:
+		val = v.Field(tm.index)
+	case *mapKey:
+		val = v.MapIndex(reflect.ValueOf(tm.name))
+		if val.Kind() == reflect.Invalid {
+			return fmt.Errorf(`map %q does not contain key %q`, outerType.Name(), tm.name)
+		}
+	}
+	qg.queryArgs = append(qg.queryArgs, sql.Named("sqlair_"+strconv.Itoa(qg.inCount), val.Interface()))
+
+	// Generate input SQL.
+	qg.sql.WriteString("@sqlair_" + strconv.Itoa(qg.inCount))
+	qg.inCount++
+	return nil
+}
+
+func (qg *queryGenerator) visitBypass(pp *preparedBypass) error {
+	qg.sql.WriteString(pp.chunk)
+	return nil
+}
+
 // QueryExpr represents a complete SQLair query, ready for execution on a
 // database.
 type QueryExpr struct {
@@ -56,7 +131,7 @@ func (pe *PreparedExpr) Query(args ...any) (qe *QueryExpr, err error) {
 		}
 	}()
 
-	var typeValue = make(map[reflect.Type]reflect.Value)
+	var typeToValue = make(map[reflect.Type]reflect.Value)
 	var typeNames []string
 	for _, arg := range args {
 		v := reflect.ValueOf(arg)
@@ -68,79 +143,40 @@ func (pe *PreparedExpr) Query(args ...any) (qe *QueryExpr, err error) {
 		if v.Kind() != reflect.Struct && v.Kind() != reflect.Map {
 			return nil, fmt.Errorf("need struct or map, got %s", t.Kind())
 		}
-		if _, ok := typeValue[t]; ok {
+		if _, ok := typeToValue[t]; ok {
 			return nil, fmt.Errorf("type %q provided more than once", t.Name())
 		}
-		typeValue[t] = v
+		typeToValue[t] = v
 		typeNames = append(typeNames, t.Name())
 	}
 
-	// Generate SQL and query parameters.
-	qargs := make([]any, 0)
-	outputs := make([]typeMember, 0)
-	typeUsed := make(map[reflect.Type]bool)
-	inCount := 0
-	outCount := 0
-	sqlStr := bytes.Buffer{}
+	qg := &queryGenerator{
+		typeToValue: typeToValue,
+		typeNames:   typeNames,
+
+		inCount:  0,
+		outCount: 0,
+
+		typeUsed:  map[reflect.Type]bool{},
+		sql:       bytes.Buffer{},
+		queryArgs: []any{},
+		outputs:   []typeMember{},
+	}
+
 	for _, pp := range *pe {
-		switch pp := pp.(type) {
-		case *preparedInput:
-			// Find arg associated with input.
-			typeMember := pp.input
-			outerType := typeMember.outerType()
-			v, ok := typeValue[outerType]
-			if !ok {
-				// Get the types of all args for checkShadowType.
-				argTypes := make([]reflect.Type, 0, len(typeValue))
-				for argType := range typeValue {
-					argTypes = append(argTypes, argType)
-				}
-				if err := checkShadowedType(outerType, argTypes); err != nil {
-					return nil, err
-				}
-				return nil, typeMissingError(outerType.Name(), typeNames)
-			}
-			typeUsed[outerType] = true
-
-			// Retrieve query parameter.
-			var val reflect.Value
-			switch tm := typeMember.(type) {
-			case *structField:
-				val = v.Field(tm.index)
-			case *mapKey:
-				val = v.MapIndex(reflect.ValueOf(tm.name))
-				if val.Kind() == reflect.Invalid {
-					return nil, fmt.Errorf(`map %q does not contain key %q`, outerType.Name(), tm.name)
-				}
-			}
-			qargs = append(qargs, sql.Named("sqlair_"+strconv.Itoa(inCount), val.Interface()))
-
-			// Generate input SQL.
-			sqlStr.WriteString("@sqlair_" + strconv.Itoa(inCount))
-			inCount++
-		case *preparedOutput:
-			for i, oc := range pp.outputColumns {
-				sqlStr.WriteString(oc.sql)
-				sqlStr.WriteString(" AS ")
-				sqlStr.WriteString(markerName(outCount))
-				if i != len(pp.outputColumns)-1 {
-					sqlStr.WriteString(", ")
-				}
-				outCount++
-				outputs = append(outputs, oc.tm)
-			}
-		case *preparedBypass:
-			sqlStr.WriteString(pp.chunk)
+		err = pp.accept(qg)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	for argType := range typeValue {
-		if !typeUsed[argType] {
+	for argType := range qg.typeToValue {
+		if !qg.typeUsed[argType] {
 			return nil, fmt.Errorf("%s not referenced in query", argType.Name())
 		}
 	}
 
-	return &QueryExpr{outputs: outputs, sql: sqlStr.String(), args: qargs}, nil
+	return &QueryExpr{outputs: qg.outputs, sql: qg.sql.String(), args: qg.queryArgs}, nil
 }
 
 // checkShadowedType returns an error if a query type and some argument type

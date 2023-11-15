@@ -14,7 +14,7 @@ type PreparedExpr []preparedPart
 // information to generate the SQL for the part and to access Go types
 // referenced in the part.
 type preparedPart interface {
-	preparedPart()
+	accept(visitor) error
 }
 
 // outputColumn stores the name of a column to fetch from the database and the
@@ -30,16 +30,18 @@ type preparedOutput struct {
 	outputColumns []outputColumn
 }
 
-// preparedPart is a marker method.
-func (*preparedOutput) preparedPart() {}
+func (po *preparedOutput) accept(v visitor) error {
+	return v.visitOutput(po)
+}
 
 // preparedInput stores information about a Go value to use as a query input.
 type preparedInput struct {
 	input typeMember
 }
 
-// preparedPart is a marker method.
-func (*preparedInput) preparedPart() {}
+func (pi *preparedInput) accept(v visitor) error {
+	return v.visitInput(pi)
+}
 
 // preparedBypass stores a section of the input SQL that we want to pass to the
 // database verbatim.
@@ -47,8 +49,9 @@ type preparedBypass struct {
 	chunk string
 }
 
-// preparedPart is a marker method.
-func (*preparedBypass) preparedPart() {}
+func (pb *preparedBypass) accept(v visitor) error {
+	return v.visitBypass(pb)
+}
 
 // getKeys returns the keys of a string map in a deterministic order.
 func getKeys[T any](m map[string]T) []string {
