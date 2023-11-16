@@ -7,6 +7,14 @@ import (
 	"strings"
 )
 
+// preparedPartVisitor allows implementors to add functionality to preparedParts
+// in the visitor rather than as methods of the preparedParts directly.
+type preparedPartVisitor interface {
+	visitInput(*preparedInput) error
+	visitOutput(*preparedOutput) error
+	visitBypass(*preparedBypass) error
+}
+
 // PreparedExpr represents a valid SQLair statement ready for use in a query.
 type PreparedExpr []preparedPart
 
@@ -14,7 +22,8 @@ type PreparedExpr []preparedPart
 // information to generate the SQL for the part and to access Go types
 // referenced in the part.
 type preparedPart interface {
-	accept(visitor) error
+	// accept should the relevant function from the preparedPartVisitor.
+	accept(preparedPartVisitor) error
 }
 
 // outputColumn stores the name of a column to fetch from the database and the
@@ -30,7 +39,7 @@ type preparedOutput struct {
 	outputColumns []outputColumn
 }
 
-func (po *preparedOutput) accept(v visitor) error {
+func (po *preparedOutput) accept(v preparedPartVisitor) error {
 	return v.visitOutput(po)
 }
 
@@ -39,7 +48,7 @@ type preparedInput struct {
 	input typeMember
 }
 
-func (pi *preparedInput) accept(v visitor) error {
+func (pi *preparedInput) accept(v preparedPartVisitor) error {
 	return v.visitInput(pi)
 }
 
@@ -49,7 +58,7 @@ type preparedBypass struct {
 	chunk string
 }
 
-func (pb *preparedBypass) accept(v visitor) error {
+func (pb *preparedBypass) accept(v preparedPartVisitor) error {
 	return v.visitBypass(pb)
 }
 

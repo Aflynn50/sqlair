@@ -21,12 +21,6 @@ func (qe *QueryExpr) HasOutputs() bool {
 	return len(qe.outputs) > 0
 }
 
-type visitor interface {
-	visitInput(*preparedInput) error
-	visitOutput(*preparedOutput) error
-	visitBypass(*preparedBypass) error
-}
-
 type queryGenerator struct {
 	typeToValue map[reflect.Type]reflect.Value
 	typeNames   []string
