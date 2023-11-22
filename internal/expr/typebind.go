@@ -51,7 +51,7 @@ type queryGenerator struct {
 	outputs  []typeMember
 }
 
-func newQueryGenerator() *queryGenerator {
+func newQueryGenerator(typeToValue map[reflect.Type]reflect.Value, typeNames []string) *queryGenerator {
 	return &queryGenerator{
 		typeToValue: typeToValue,
 		typeNames:   typeNames,
@@ -94,7 +94,7 @@ func (te *TypedExpr) BindInputs(args ...any) (pq *PrimedQuery, err error) {
 		typeNames = append(typeNames, t.Name())
 	}
 
-	qg := newQueryGenerator()
+	qg := newQueryGenerator(typeToValue, typeNames)
 
 	for _, typedExpr := range *te {
 		err = typedExpr.generateValues(qg)
