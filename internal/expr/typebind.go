@@ -35,7 +35,35 @@ type TypedExpr []typedExpression
 // information to generate the SQL for the part and to access Go types
 // referenced in the part.
 type typedExpression interface {
-	typedExpr()
+	generateValues(*queryGenerator) error
+}
+
+type queryGenerator struct {
+	typeToValue map[reflect.Type]reflect.Value
+	typeNames   []string
+
+	inCount  int
+	outCount int
+
+	typeUsed map[reflect.Type]bool
+	sql      bytes.Buffer
+	params   []any
+	outputs  []typeMember
+}
+
+func newQueryGenerator() *queryGenerator {
+	return &queryGenerator{
+		typeToValue: typeToValue,
+		typeNames:   typeNames,
+
+		inCount:  0,
+		outCount: 0,
+
+		typeUsed: map[reflect.Type]bool{},
+		sql:      bytes.Buffer{},
+		params:   []any{},
+		outputs:  []typeMember{},
+	}
 }
 
 // BindInputs takes the SQLair input arguments and returns the PrimedQuery ready
@@ -47,7 +75,7 @@ func (te *TypedExpr) BindInputs(args ...any) (pq *PrimedQuery, err error) {
 		}
 	}()
 
-	var typeValue = make(map[reflect.Type]reflect.Value)
+	var typeToValue = make(map[reflect.Type]reflect.Value)
 	var typeNames []string
 	for _, arg := range args {
 		v := reflect.ValueOf(arg)
@@ -59,79 +87,29 @@ func (te *TypedExpr) BindInputs(args ...any) (pq *PrimedQuery, err error) {
 		if v.Kind() != reflect.Struct && v.Kind() != reflect.Map {
 			return nil, fmt.Errorf("need struct or map, got %s", t.Kind())
 		}
-		if _, ok := typeValue[t]; ok {
+		if _, ok := typeToValue[t]; ok {
 			return nil, fmt.Errorf("type %q provided more than once", t.Name())
 		}
-		typeValue[t] = v
+		typeToValue[t] = v
 		typeNames = append(typeNames, t.Name())
 	}
 
-	// Generate SQL and query parameters.
-	params := make([]any, 0)
-	outputs := make([]typeMember, 0)
-	typeUsed := make(map[reflect.Type]bool)
-	inCount := 0
-	outCount := 0
-	sqlStr := bytes.Buffer{}
+	qg := newQueryGenerator()
+
 	for _, typedExpr := range *te {
-		switch typedExpr := typedExpr.(type) {
-		case *typedInputExpr:
-			// Find arg associated with input.
-			typeMember := typedExpr.input
-			outerType := typeMember.outerType()
-			v, ok := typeValue[outerType]
-			if !ok {
-				// Get the types of all args for checkShadowType.
-				argTypes := make([]reflect.Type, 0, len(typeValue))
-				for argType := range typeValue {
-					argTypes = append(argTypes, argType)
-				}
-				if err := checkShadowedType(outerType, argTypes); err != nil {
-					return nil, err
-				}
-				return nil, typeMissingError(outerType.Name(), typeNames)
-			}
-			typeUsed[outerType] = true
-
-			// Retrieve query parameter.
-			var val reflect.Value
-			switch tm := typeMember.(type) {
-			case *structField:
-				val = v.Field(tm.index)
-			case *mapKey:
-				val = v.MapIndex(reflect.ValueOf(tm.name))
-				if val.Kind() == reflect.Invalid {
-					return nil, fmt.Errorf(`map %q does not contain key %q`, outerType.Name(), tm.name)
-				}
-			}
-			params = append(params, sql.Named("sqlair_"+strconv.Itoa(inCount), val.Interface()))
-
-			// Generate input SQL.
-			sqlStr.WriteString("@sqlair_" + strconv.Itoa(inCount))
-			inCount++
-		case *typedOutputExpr:
-			for i, oc := range typedExpr.outputColumns {
-				sqlStr.WriteString(oc.sql)
-				sqlStr.WriteString(" AS ")
-				sqlStr.WriteString(markerName(outCount))
-				if i != len(typedExpr.outputColumns)-1 {
-					sqlStr.WriteString(", ")
-				}
-				outCount++
-				outputs = append(outputs, oc.tm)
-			}
-		case *bypass:
-			sqlStr.WriteString(typedExpr.chunk)
+		err = typedExpr.generateValues(qg)
+		if err != nil {
+			return nil, err
 		}
 	}
 
-	for argType := range typeValue {
-		if !typeUsed[argType] {
+	for argType := range qg.typeToValue {
+		if !qg.typeUsed[argType] {
 			return nil, fmt.Errorf("%s not referenced in query", argType.Name())
 		}
 	}
 
-	return &PrimedQuery{outputs: outputs, sql: sqlStr.String(), params: params}, nil
+	return &PrimedQuery{outputs: qg.outputs, sql: qg.sql.String(), params: qg.params}, nil
 }
 
 // checkShadowedType returns an error if a query type and some argument type
@@ -159,7 +137,19 @@ type typedOutputExpr struct {
 }
 
 // typedExpr is a marker method.
-func (*typedOutputExpr) typedExpr() {}
+func (toe *typedOutputExpr) generateValues(qg *queryGenerator) error {
+	for i, oc := range toe.outputColumns {
+		qg.sql.WriteString(oc.sql)
+		qg.sql.WriteString(" AS ")
+		qg.sql.WriteString(markerName(qg.outCount))
+		if i != len(toe.outputColumns)-1 {
+			qg.sql.WriteString(", ")
+		}
+		qg.outCount++
+		qg.outputs = append(qg.outputs, oc.tm)
+	}
+	return nil
+}
 
 // typedInputExpr stores information about a Go value to use as a query input.
 type typedInputExpr struct {
@@ -167,10 +157,48 @@ type typedInputExpr struct {
 }
 
 // typedExpr is a marker method.
-func (*typedInputExpr) typedExpr() {}
+func (tie *typedInputExpr) generateValues(qg *queryGenerator) error {
+	// Find arg associated with input.
+	typeMember := tie.input
+	outerType := typeMember.outerType()
+	v, ok := qg.typeToValue[outerType]
+	if !ok {
+		// Get the types of all args for checkShadowType.
+		argTypes := make([]reflect.Type, 0, len(qg.typeToValue))
+		for argType := range qg.typeToValue {
+			argTypes = append(argTypes, argType)
+		}
+		if err := checkShadowedType(outerType, argTypes); err != nil {
+			return err
+		}
+		return typeMissingError(outerType.Name(), qg.typeNames)
+	}
+	qg.typeUsed[outerType] = true
+
+	// Retrieve query parameter.
+	var val reflect.Value
+	switch tm := typeMember.(type) {
+	case *structField:
+		val = v.Field(tm.index)
+	case *mapKey:
+		val = v.MapIndex(reflect.ValueOf(tm.name))
+		if val.Kind() == reflect.Invalid {
+			return fmt.Errorf(`map %q does not contain key %q`, outerType.Name(), tm.name)
+		}
+	}
+	qg.params = append(qg.params, sql.Named("sqlair_"+strconv.Itoa(qg.inCount), val.Interface()))
+
+	// Generate input SQL.
+	qg.sql.WriteString("@sqlair_" + strconv.Itoa(qg.inCount))
+	qg.inCount++
+	return nil
+}
 
 // typedExpr is a marker method.
-func (*bypass) typedExpr() {}
+func (b *bypass) generateValues(qg *queryGenerator) error {
+	qg.sql.WriteString(b.chunk)
+	return nil
+}
 
 // getKeys returns the keys of a string map in a deterministic order.
 func getKeys[T any](m map[string]T) []string {
