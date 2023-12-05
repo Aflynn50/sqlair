@@ -1,0 +1,8 @@
+global:
+  scrape_interval: 3s
+
+scrape_configs:
+  - job_name: sqlair-bench
+    static_configs:
+      - targets:
+          - sqlair-bench:3333
