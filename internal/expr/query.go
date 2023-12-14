@@ -18,6 +18,11 @@ type PrimedQuery struct {
 	outputs []typeinfo.Output
 }
 
+// SQL returns the query SQL to pass to the database.
+func (pq *PrimedQuery) SQL() string {
+	return pq.sql
+}
+
 // Params returns the query parameters to pass with the SQL to a database.
 func (pq *PrimedQuery) Params() []any {
 	return pq.params
