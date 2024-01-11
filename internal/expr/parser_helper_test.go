@@ -180,8 +180,8 @@ func (s parseSuite) TestParseSliceRange(c *C) {
 		expected valueAccessor
 		err      string
 	}{
-		{input: "mySlice[:]", expected: sliceAccessor{typeName: "mySlice"}},
-		{input: "mySlice[ : ]", expected: sliceAccessor{typeName: "mySlice"}},
+		{input: "mySlice[:]", expected: &sliceAccessor{typeName: "mySlice"}},
+		{input: "mySlice[ : ]", expected: &sliceAccessor{typeName: "mySlice"}},
 		{input: "mySlice[]", err: "column 1: invalid slice: expected 'mySlice[:]'"},
 		{input: "mySlice[1:10]", err: "column 1: invalid slice: expected 'mySlice[:]'"},
 		{input: "mySlice[1:]", err: "column 1: invalid slice: expected 'mySlice[:]'"},

@@ -77,11 +77,12 @@ type expression interface {
 	expr()
 }
 
-// valueAccessor stores information about how to access a Go value. For example:
-// by index, by key, or by slice syntax.
+// valueAccessor stores information about how to access a Go value. It consists
+// of a type name and information to access some value within it. For example:
+// a field of a struct, a key of a map, or a slice.
 type valueAccessor interface {
-	fmt.Stringer
-	getTypeName() string
+	String() string
+	typName() string
 }
 
 // memberAccessor stores information for accessing a keyed Go value. It consists
@@ -91,38 +92,71 @@ type memberAccessor struct {
 	typeName, memberName string
 }
 
-func (ma memberAccessor) String() string {
+func (ma *memberAccessor) String() string {
 	return ma.typeName + "." + ma.memberName
 }
 
-func (ma memberAccessor) getTypeName() string {
+func (ma *memberAccessor) typName() string {
 	return ma.typeName
 }
 
-// sliceAccessor stores information for accessing a slice using the
-// expression "typeName[:]".
+type allMembersAccessor struct {
+	typeName string
+}
+
+func (aa *allMembersAccessor) String() string {
+	return aa.typeName + ".*"
+}
+
+func (aa *allMembersAccessor) typName() string {
+	return aa.typeName
+}
+
+// sliceAccessor stores information for accessing a slice using the expression
+// "typeName[:]".
 type sliceAccessor struct {
 	typeName string
 }
 
-func (st sliceAccessor) String() string {
-	return fmt.Sprintf("%s[:]", st.typeName)
+func (sa *sliceAccessor) String() string {
+	return fmt.Sprintf("%s[:]", sa.typeName)
 }
 
-func (sa sliceAccessor) getTypeName() string {
+func (sa *sliceAccessor) typName() string {
 	return sa.typeName
 }
 
 // columnAccessor stores a SQL column name and optionally its table name.
-type columnAccessor struct {
+type columnAccessor interface {
+	ca()
+}
+
+type wildcardColumn struct {
+	tableName string
+}
+
+func (wc *wildcardColumn) String() string {
+	if wc.tableName == "" {
+		return "[*]"
+	}
+	return "[" + wc.tableName + ".*" + "]"
+}
+
+func (wc *wildcardColumn) ca() {}
+
+type standardColumns []standardColumn
+
+func (scs standardColumns) ca() {}
+
+type standardColumn struct {
 	tableName, columnName string
 }
 
-func (ca columnAccessor) String() string {
-	if ca.tableName == "" {
-		return ca.columnName
+func (sc standardColumn) String() string {
+	if sc.tableName == "" {
+		return sc.columnName
 	}
-	return ca.tableName + "." + ca.columnName
+	return sc.tableName + "." + sc.columnName
 }
 
 // inputExpr represents a named parameter that will be sent to the database
@@ -141,8 +175,8 @@ func (p *inputExpr) expr() {}
 // outputExpr represents a named target output variable in the SQL expression,
 // as well as the source table and column where it will be read from.
 type outputExpr struct {
-	sourceColumns []columnAccessor
-	targetTypes   []memberAccessor
+	sourceColumns columnAccessor
+	targetTypes   []valueAccessor
 	raw           string
 }
 
@@ -462,20 +496,9 @@ func (p *Parser) skipName() bool {
 //  - bool == false, err == nil
 //		The construct was not the one we are looking for
 
-// parseIdentifierAsterisk parses a name made up of only nameBytes or of a
-// single asterisk. On success it returns the parsed string and true. Otherwise,
-// it returns the empty string and false.
-func (p *Parser) parseIdentifierAsterisk() (string, bool) {
-	if p.skipByte('*') {
-		return "*", true
-	}
-	return p.parseIdentifier()
-}
-
-// parseIdentifier parses a name made up of only nameBytes. On success it
-// returns the parsed string and true. Otherwise, it returns the empty string
-// and false.
-func (p *Parser) parseIdentifier() (string, bool) {
+// parseName parses a name made up of only nameBytes. On success it returns the
+// parsed string and true. Otherwise, it returns the empty string and false.
+func (p *Parser) parseName() (string, bool) {
 	mark := p.pos
 	if p.skipName() {
 		return p.input[mark:p.pos], true
@@ -483,27 +506,95 @@ func (p *Parser) parseIdentifier() (string, bool) {
 	return "", false
 }
 
-// parseColumn parses a column made up of name bytes, optionally dot-prefixed by
-// its table name.
+// parseWildcardColumn parses an asterisk optionally dot prefixed with a table
+// name.
+func (p *Parser) parseWildcardColumn() (wc *wildcardColumn, parenthese bool, ok bool, err error) {
+	cp := p.save()
+	isBracketed := p.skipByte('(')
+	if p.skipByte('*') {
+		wc = &wildcardColumn{}
+		goto checkBracket
+	} else if name, ok := p.parseName(); ok {
+		if p.skipByte('.') {
+			if p.skipByte('*') {
+				wc = &wildcardColumn{tableName: name}
+				goto checkBracket
+			}
+		}
+	}
+	cp.restore()
+	return nil, isBracketed, false, nil
+checkBracket:
+	if isBracketed {
+		if !p.skipByte(')') {
+			return nil, true, false, fmt.Errorf("invalid asterisk in columns")
+		}
+		return wc, true, true, nil
+	}
+	return wc, false, true, nil
+}
+
+// parseColumns parses a single asterisk column or a list of non-asterisk
+// columns. Either can be optionally enclosed in parentheses.
+func (p *Parser) parseColumns() (ca columnAccessor, parentheses bool, ok bool, err error) {
+	var cols []standardColumn
+	startCol := p.pos
+	if col, ok, err := p.parseColumn(); err != nil {
+		return nil, false, false, err
+	} else if ok {
+		// Case 1: A single standard column e.g. "p.name".
+		parentheses = false
+		cols = append(cols, col)
+	} else if colList, ok, err := parseList(p, (*Parser).parseColumn); err != nil {
+		return nil, true, false, err
+	} else if ok {
+		// Case 2: Multiple standard columns e.g. "(p.name, p.id)".
+		parentheses = true
+		cols = colList
+	} else {
+		return nil, false, false, nil
+	}
+
+	// Verify that columns are either a single asterisk column, or a list of
+	// non-asterisk columns.
+	if len(cols) == 1 && cols[0].columnName == "*" {
+		return &wildcardColumn{cols[0].tableName}, parentheses, true, nil
+	}
+	for _, col := range cols {
+		if col.columnName == "*" {
+			return nil, true, false, errorAt(fmt.Errorf("invalid asterisk in columns: %s", p.input[startCol:p.pos]), p.lineNum, startCol, p.input)
+		}
+	}
+	return standardColumns(cols), parentheses, true, nil
+}
+
+// parseColumn parses a column made up of name bytes or an asterisk, optionally
+// dot-prefixed by its table name.
 // parseColumn returns an error so that it can be used with parseList.
-func (p *Parser) parseColumn() (columnAccessor, bool, error) {
+func (p *Parser) parseColumn() (standardColumn, bool, error) {
 	cp := p.save()
 
-	if id, ok := p.parseIdentifierAsterisk(); ok {
-		if id != "*" && p.skipByte('.') {
-			if idCol, ok := p.parseIdentifierAsterisk(); ok {
-				return columnAccessor{tableName: id, columnName: idCol}, true, nil
+	if p.skipByte('*') {
+		return standardColumn{columnName: "*"}, true, nil
+	}
+
+	if name, ok := p.parseName(); ok {
+		if p.skipByte('.') {
+			if columnName, ok := p.parseName(); ok {
+				return standardColumn{tableName: name, columnName: columnName}, true, nil
 			}
-		} else {
-			return columnAccessor{columnName: id}, true, nil
+			if p.skipByte('*') {
+				return standardColumn{tableName: name, columnName: "*"}, true, nil
+			}
 		}
+		return standardColumn{columnName: name}, true, nil
 	}
 
 	cp.restore()
-	return columnAccessor{}, false, nil
+	return standardColumn{}, false, nil
 }
 
-func (p *Parser) parseTargetType() (memberAccessor, bool, error) {
+func (p *Parser) parseTargetType() (valueAccessor, bool, error) {
 	startLine := p.lineNum
 	startCol := p.colNum()
 
@@ -511,60 +602,62 @@ func (p *Parser) parseTargetType() (memberAccessor, bool, error) {
 		// Using a slice as an output is an error, we add the case here to
 		// improve the error message.
 		if st, ok, err := p.parseSliceAccessor(); ok {
-			return memberAccessor{}, false, errorAt(fmt.Errorf("cannot use slice syntax %q in output expression", st), startLine, startCol, p.input)
+			return nil, false, errorAt(fmt.Errorf("cannot use slice syntax %q in output expression", st), startLine, startCol, p.input)
 		} else if err != nil {
-			return memberAccessor{}, false, errorAt(fmt.Errorf("cannot use slice syntax in output expression"), startLine, startCol, p.input)
+			return nil, false, errorAt(fmt.Errorf("cannot use slice syntax in output expression"), startLine, startCol, p.input)
 		}
 		return p.parseTypeAndMember()
 	}
 
-	return memberAccessor{}, false, nil
+	return nil, false, nil
 }
 
 // parseSliceAccessor parses a slice range composed of the form "[:]".
-func (p *Parser) parseSliceAccessor() (sa sliceAccessor, ok bool, err error) {
+func (p *Parser) parseSliceAccessor() (sa *sliceAccessor, ok bool, err error) {
 	cp := p.save()
 
-	id, ok := p.parseIdentifier()
+	id, ok := p.parseName()
 	if !ok {
-		return sliceAccessor{}, false, nil
+		return nil, false, nil
 	}
 	if !p.skipByte('[') {
 		cp.restore()
-		return sliceAccessor{}, false, nil
+		return nil, false, nil
 	}
 	p.skipBlanks()
 	if !p.skipByte(':') {
-		return sliceAccessor{}, false, errorAt(fmt.Errorf("invalid slice: expected '%s[:]'", id), cp.lineNum, cp.colNum(), p.input)
+		return nil, false, errorAt(fmt.Errorf("invalid slice: expected '%s[:]'", id), cp.lineNum, cp.colNum(), p.input)
 	}
 	p.skipBlanks()
 	if !p.skipByte(']') {
-		return sliceAccessor{}, false, errorAt(fmt.Errorf("invalid slice: expected '%s[:]'", id), cp.lineNum, cp.colNum(), p.input)
+		return nil, false, errorAt(fmt.Errorf("invalid slice: expected '%s[:]'", id), cp.lineNum, cp.colNum(), p.input)
 	}
-	return sliceAccessor{typeName: id}, true, nil
+	return &sliceAccessor{typeName: id}, true, nil
 }
 
 // parseTypeAndMember parses a Go type name qualified by a tag name (or asterisk)
 // of the form "TypeName.col_name".
-func (p *Parser) parseTypeAndMember() (memberAccessor, bool, error) {
+func (p *Parser) parseTypeAndMember() (valueAccessor, bool, error) {
 	cp := p.save()
 
 	// The error points to the skipped & or $.
 	identifierCol := p.colNum() - 1
-	if id, ok := p.parseIdentifier(); ok {
+	if typeName, ok := p.parseName(); ok {
 		if !p.skipByte('.') {
-			return memberAccessor{}, false, errorAt(fmt.Errorf("unqualified type, expected %s.* or %s.<db tag> or %s[:]", id, id, id), p.lineNum, identifierCol, p.input)
+			return nil, false, errorAt(fmt.Errorf("unqualified type, expected %s.* or %s.<db tag> or %s[:]", typeName, typeName, typeName), p.lineNum, identifierCol, p.input)
 		}
-
-		idField, ok := p.parseIdentifierAsterisk()
+		if p.skipByte('*') {
+			return &allMembersAccessor{typeName: typeName}, true, nil
+		}
+		memberName, ok := p.parseName()
 		if !ok {
-			return memberAccessor{}, false, errorAt(fmt.Errorf("invalid identifier suffix following %q", id), p.lineNum, p.colNum(), p.input)
+			return nil, false, errorAt(fmt.Errorf("invalid identifier suffix following %q", typeName), p.lineNum, p.colNum(), p.input)
 		}
-		return memberAccessor{typeName: id, memberName: idField}, true, nil
+		return &memberAccessor{typeName: typeName, memberName: memberName}, true, nil
 	}
 
 	cp.restore()
-	return memberAccessor{}, false, nil
+	return nil, false, nil
 }
 
 // parseList takes a parsing function that returns a T and parses a
@@ -605,30 +698,14 @@ func parseList[T any](p *Parser, parseFn func(p *Parser) (T, bool, error)) ([]T,
 	return nil, false, errorAt(fmt.Errorf("missing closing parentheses"), openingParenLine, openingParenCol, p.input)
 }
 
-// parseColumns parses a single column or a list of columns. Lists must be
-// enclosed in parentheses.
-func (p *Parser) parseColumns() (cols []columnAccessor, parentheses bool, ok bool) {
-	// Case 1: A single column e.g. "p.name".
-	if col, ok, _ := p.parseColumn(); ok {
-		return []columnAccessor{col}, false, true
-	}
-
-	// Case 2: Multiple columns e.g. "(p.name, p.id)".
-	if cols, ok, _ := parseList(p, (*Parser).parseColumn); ok {
-		return cols, true, true
-	}
-
-	return nil, false, false
-}
-
 // parseTargetTypes parses a single output type or a list of output types.
 // Lists of types must be enclosed in parentheses.
-func (p *Parser) parseTargetTypes() (types []memberAccessor, parentheses bool, ok bool, err error) {
+func (p *Parser) parseTargetTypes() (types []valueAccessor, parentheses bool, ok bool, err error) {
 	// Case 1: A single target e.g. "&Person.name".
-	if targetTypes, ok, err := p.parseTargetType(); err != nil {
+	if targetType, ok, err := p.parseTargetType(); err != nil {
 		return nil, false, false, err
 	} else if ok {
-		return []memberAccessor{targetTypes}, false, true, nil
+		return []valueAccessor{targetType}, false, true, nil
 	}
 
 	// Case 2: Multiple types e.g. "(&Person.name, &Person.id)".
@@ -651,8 +728,8 @@ func (p *Parser) parseOutputExpr() (*outputExpr, bool, error) {
 		return nil, false, err
 	} else if ok {
 		return &outputExpr{
-			sourceColumns: []columnAccessor{},
-			targetTypes:   []memberAccessor{targetType},
+			sourceColumns: nil,
+			targetTypes:   []valueAccessor{targetType},
 			raw:           p.input[start:p.pos],
 		}, true, nil
 	}
@@ -660,13 +737,15 @@ func (p *Parser) parseOutputExpr() (*outputExpr, bool, error) {
 	cp := p.save()
 
 	// Case 2: There are columns e.g. "p.col1 AS &Person.*".
-	if cols, parenCols, ok := p.parseColumns(); ok {
+	if cols, parenCols, ok, colErr := p.parseColumns(); ok || colErr != nil {
 		p.skipBlanks()
 		if p.skipString("AS") {
 			p.skipBlanks()
 			parenCol := p.colNum()
 			if targetTypes, parenTypes, ok, err := p.parseTargetTypes(); err != nil {
 				return nil, false, err
+			} else if colErr != nil {
+				return nil, false, colErr
 			} else if ok {
 				if parenCols && !parenTypes {
 					return nil, false, errorAt(fmt.Errorf(`missing parentheses around types after "AS"`), p.lineNum, parenCol, p.input)
@@ -702,11 +781,12 @@ func (p *Parser) parseInputExpr() (*inputExpr, bool, error) {
 	}
 
 	// Case 2: Struct or map, "Type.something".
-	if tn, ok, err := p.parseTypeAndMember(); ok {
-		if tn.memberName == "*" {
-			return nil, false, errorAt(fmt.Errorf("asterisk not allowed in input expression %q", "$"+tn.String()), cp.lineNum, cp.colNum(), p.input)
+	if valueAccessor, ok, err := p.parseTypeAndMember(); ok {
+		memberAccessor, ok := valueAccessor.(*memberAccessor)
+		if !ok {
+			return nil, false, errorAt(fmt.Errorf(`asterisk not allowed in input expression "$%s"`, valueAccessor.String()), cp.lineNum, cp.colNum(), p.input)
 		}
-		return &inputExpr{sourceType: tn, raw: p.input[cp.pos:p.pos]}, true, nil
+		return &inputExpr{sourceType: memberAccessor, raw: p.input[cp.pos:p.pos]}, true, nil
 	} else if err != nil {
 		return nil, false, err
 	}

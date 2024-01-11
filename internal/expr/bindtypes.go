@@ -89,12 +89,12 @@ func bindInputTypes(e *inputExpr, argInfo typeinfo.ArgInfo) (te *typedInputExpr,
 
 	var input typeinfo.Input
 	switch a := e.sourceType.(type) {
-	case memberAccessor:
+	case *memberAccessor:
 		input, err = argInfo.InputMember(a.typeName, a.memberName)
 		if err != nil {
 			return nil, err
 		}
-	case sliceAccessor:
+	case *sliceAccessor:
 		return nil, fmt.Errorf("slice support not implemented")
 	}
 	return &typedInputExpr{input}, nil
@@ -110,98 +110,77 @@ func bindOutputTypes(e *outputExpr, argInfo typeinfo.ArgInfo) (te *typedOutputEx
 		}
 	}()
 
-	numTypes := len(e.targetTypes)
-	numColumns := len(e.sourceColumns)
-	starTypes := starCountTypes(e.targetTypes)
-	starColumns := starCountColumns(e.sourceColumns)
-
+	// Prepend table name. E.g. "t" in "t.* AS &P.*".
 	toe := &typedOutputExpr{}
-
+	switch ca := e.sourceColumns.(type) {
 	// Case 1: Generated columns e.g. "* AS (&P.*, &A.id)" or "&P.*".
-	if numColumns == 0 || (numColumns == 1 && starColumns == 1) {
-		pref := ""
-		// Prepend table name. E.g. "t" in "t.* AS &P.*".
-		if numColumns > 0 {
-			pref = e.sourceColumns[0].tableName
+	case nil, *wildcardColumn:
+		tablePrefix := ""
+		if wc, ok := ca.(*wildcardColumn); ok {
+			tablePrefix = wc.tableName
 		}
-
-		for _, t := range e.targetTypes {
-			if t.memberName == "*" {
+		for _, va := range e.targetTypes {
+			switch va := va.(type) {
+			case *allMembersAccessor:
 				// Generate asterisk columns.
-				outputs, memberNames, err := argInfo.AllStructOutputs(t.typeName)
+				members, memberNames, err := argInfo.AllStructOutputs(va.typeName)
 				if err != nil {
 					return nil, err
 				}
-				for i, output := range outputs {
-					oc := newOutputColumn(pref, memberNames[i], output)
+				for i, member := range members {
+					oc := newOutputColumn(tablePrefix, memberNames[i], member)
 					toe.outputColumns = append(toe.outputColumns, oc)
 				}
-			} else {
+			case *memberAccessor:
 				// Generate explicit columns.
-				output, err := argInfo.OutputMember(t.typeName, t.memberName)
+				member, err := argInfo.OutputMember(va.typeName, va.memberName)
 				if err != nil {
 					return nil, err
 				}
-				oc := newOutputColumn(pref, t.memberName, output)
+				oc := newOutputColumn(tablePrefix, va.memberName, member)
 				toe.outputColumns = append(toe.outputColumns, oc)
+			default:
+				return nil, fmt.Errorf("internal error: unknown type %T", va)
 			}
 		}
 		return toe, nil
-	} else if numColumns > 1 && starColumns > 0 {
-		return nil, fmt.Errorf("invalid asterisk in columns")
-	}
-
-	// Case 2: Explicit columns, single asterisk type e.g. "(col1, t.col2) AS &P.*".
-	if starTypes == 1 && numTypes == 1 {
-		for _, c := range e.sourceColumns {
-			output, err := argInfo.OutputMember(e.targetTypes[0].typeName, c.columnName)
-			if err != nil {
-				return nil, err
+	case standardColumns:
+		for i, va := range e.targetTypes {
+			switch va := va.(type) {
+			case *allMembersAccessor:
+				// Case 2: Explicit columns, single asterisk type
+				// e.g. "(col1, t.col2) AS &P.*".
+				if len(e.targetTypes) != 1 {
+					return nil, fmt.Errorf("invalid asterisk in types")
+				}
+				for _, c := range ca {
+					member, err := argInfo.OutputMember(va.typeName, c.columnName)
+					if err != nil {
+						return nil, err
+					}
+					oc := newOutputColumn(c.tableName, c.columnName, member)
+					toe.outputColumns = append(toe.outputColumns, oc)
+				}
+				return toe, nil
+			case *memberAccessor:
+				// Case 3: Explicit columns and types
+				// e.g. "(col1, col2) AS (&P.name, &P.id)".
+				if len(ca) != len(e.targetTypes) {
+					return nil, fmt.Errorf("mismatched number of columns and target types")
+				}
+				member, err := argInfo.OutputMember(va.typeName, va.memberName)
+				if err != nil {
+					return nil, err
+				}
+				oc := newOutputColumn(ca[i].tableName, ca[i].columnName, member)
+				toe.outputColumns = append(toe.outputColumns, oc)
+			default:
+				return nil, fmt.Errorf("internal error: unknown type %T", va)
 			}
-			oc := newOutputColumn(c.tableName, c.columnName, output)
-			toe.outputColumns = append(toe.outputColumns, oc)
 		}
 		return toe, nil
-	} else if starTypes > 0 && numTypes > 1 {
-		return nil, fmt.Errorf("invalid asterisk in types")
+	default:
+		return nil, fmt.Errorf("internal error: unknown type %T", ca)
 	}
-
-	// Case 3: Explicit columns and types e.g. "(col1, col2) AS (&P.name, &P.id)".
-	if numColumns == numTypes {
-		for i, c := range e.sourceColumns {
-			t := e.targetTypes[i]
-			output, err := argInfo.OutputMember(t.typeName, t.memberName)
-			if err != nil {
-				return nil, err
-			}
-			oc := newOutputColumn(c.tableName, c.columnName, output)
-			toe.outputColumns = append(toe.outputColumns, oc)
-		}
-	} else {
-		return nil, fmt.Errorf("mismatched number of columns and target types")
-	}
-
-	return toe, nil
-}
-
-// starCountColumns counts the number of asterisks in a list of columns.
-func starCountColumns(cs []columnAccessor) int {
-	s := 0
-	for _, c := range cs {
-		if c.columnName == "*" {
-			s++
-		}
-	}
-	return s
-}
-
-// starCountTypes counts the number of asterisks in a list of types.
-func starCountTypes(vs []memberAccessor) int {
-	s := 0
-	for _, v := range vs {
-		if v.memberName == "*" {
-			s++
-		}
-	}
-	return s
+	return nil, fmt.Errorf("internal error: unreachable")
 }

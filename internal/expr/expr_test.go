@@ -59,8 +59,8 @@ var tests = []struct {
 	typeSamples:    []any{Person{}},
 	expectedSQL:    "SELECT p.address_id AS _sqlair_0, p.id AS _sqlair_1, p.name AS _sqlair_2",
 }, {
-	summary:        "spaces and tabs",
-	query:          "SELECT p.* 	AS 		   &Person.*",
+	summary: "spaces and tabs",
+	query: "SELECT p.* 	AS 		   &Person.*",
 	expectedParsed: "[Bypass[SELECT ] Output[[p.*] [Person.*]]]",
 	typeSamples:    []any{Person{}},
 	expectedSQL:    "SELECT p.address_id AS _sqlair_0, p.id AS _sqlair_1, p.name AS _sqlair_2",
@@ -100,7 +100,7 @@ And now it stops */ WHERE "x" = /-*'' -- The "WHERE" line
 AND y =/* And now we have " */ "-- /* */" /* " some comments strings */
 AND z = $Person.id -- The line with $Person.id on it
 `,
-	expectedParsed: `[Bypass[SELECT ] Output[[] [Person.*]] Bypass[ -- The line with &Person.* on it
+	expectedParsed: `[Bypass[SELECT ] Output[<nil> [Person.*]] Bypass[ -- The line with &Person.* on it
 FROM person /* The start of a multi line comment
 It keeps going here with some weird chars /-*"/
 And now it stops */ WHERE "x" = /-*'' -- The "WHERE" line
@@ -158,7 +158,7 @@ AND z = @sqlair_0 -- The line with $Person.id on it
 }, {
 	summary:        "output and input",
 	query:          "SELECT &Person.* FROM table WHERE foo = $Address.id",
-	expectedParsed: "[Bypass[SELECT ] Output[[] [Person.*]] Bypass[ FROM table WHERE foo = ] Input[Address.id]]",
+	expectedParsed: "[Bypass[SELECT ] Output[<nil> [Person.*]] Bypass[ FROM table WHERE foo = ] Input[Address.id]]",
 	typeSamples:    []any{Person{}, Address{}},
 	inputArgs:      []any{Address{ID: 1}},
 	expectedParams: []any{1},
@@ -166,7 +166,7 @@ AND z = @sqlair_0 -- The line with $Person.id on it
 }, {
 	summary:        "outputs and quote",
 	query:          "SELECT foo, &Person.id, bar, baz, &Manager.name FROM table WHERE foo = 'xx'",
-	expectedParsed: "[Bypass[SELECT foo, ] Output[[] [Person.id]] Bypass[, bar, baz, ] Output[[] [Manager.name]] Bypass[ FROM table WHERE foo = 'xx']]",
+	expectedParsed: "[Bypass[SELECT foo, ] Output[<nil> [Person.id]] Bypass[, bar, baz, ] Output[<nil> [Manager.name]] Bypass[ FROM table WHERE foo = 'xx']]",
 	typeSamples:    []any{Person{}, Manager{}},
 	expectedSQL:    "SELECT foo, id AS _sqlair_0, bar, baz, name AS _sqlair_1 FROM table WHERE foo = 'xx'",
 }, {
@@ -178,13 +178,13 @@ AND z = @sqlair_0 -- The line with $Person.id on it
 }, {
 	summary:        "two star outputs and quote",
 	query:          "SELECT &Person.*, a.* AS &Address.* FROM person, address a WHERE name = 'Fred'",
-	expectedParsed: "[Bypass[SELECT ] Output[[] [Person.*]] Bypass[, ] Output[[a.*] [Address.*]] Bypass[ FROM person, address a WHERE name = 'Fred']]",
+	expectedParsed: "[Bypass[SELECT ] Output[<nil> [Person.*]] Bypass[, ] Output[[a.*] [Address.*]] Bypass[ FROM person, address a WHERE name = 'Fred']]",
 	typeSamples:    []any{Person{}, Address{}},
 	expectedSQL:    "SELECT address_id AS _sqlair_0, id AS _sqlair_1, name AS _sqlair_2, a.district AS _sqlair_3, a.id AS _sqlair_4, a.street AS _sqlair_5 FROM person, address a WHERE name = 'Fred'",
 }, {
 	summary:        "map input and output",
 	query:          "SELECT (p.name, a.id) AS (&M.*), street AS &StringMap.*, &IntMap.id FROM person, address a WHERE name = $M.name",
-	expectedParsed: "[Bypass[SELECT ] Output[[p.name a.id] [M.*]] Bypass[, ] Output[[street] [StringMap.*]] Bypass[, ] Output[[] [IntMap.id]] Bypass[ FROM person, address a WHERE name = ] Input[M.name]]",
+	expectedParsed: "[Bypass[SELECT ] Output[[p.name a.id] [M.*]] Bypass[, ] Output[[street] [StringMap.*]] Bypass[, ] Output[<nil> [IntMap.id]] Bypass[ FROM person, address a WHERE name = ] Input[M.name]]",
 	typeSamples:    []any{sqlair.M{}, IntMap{}, StringMap{}},
 	inputArgs:      []any{sqlair.M{"name": "Foo"}},
 	expectedParams: []any{"Foo"},
@@ -216,7 +216,7 @@ AND z = @sqlair_0 -- The line with $Person.id on it
 }, {
 	summary:        "multicolumn output v5",
 	query:          "SELECT (&Address.street, &Person.id) FROM address AS a WHERE p.name = 'Fred'",
-	expectedParsed: "[Bypass[SELECT (] Output[[] [Address.street]] Bypass[, ] Output[[] [Person.id]] Bypass[) FROM address AS a WHERE p.name = 'Fred']]",
+	expectedParsed: "[Bypass[SELECT (] Output[<nil> [Address.street]] Bypass[, ] Output[<nil> [Person.id]] Bypass[) FROM address AS a WHERE p.name = 'Fred']]",
 	typeSamples:    []any{Address{}, Person{}},
 	expectedSQL:    "SELECT (street AS _sqlair_0, id AS _sqlair_1) FROM address AS a WHERE p.name = 'Fred'",
 }, {
@@ -459,6 +459,24 @@ string
 of three lines' AND id = $Person.*`,
 		err: `cannot parse expression: line 3, column 26: asterisk not allowed in input expression "$Person.*"`,
 	}, {
+		query: "SELECT (p.*, t.name) AS (&Address.*) FROM t",
+		err:   "cannot parse expression: column 7: invalid asterisk in columns: (p.*, t.name)",
+	}, {
+		query: "SELECT (*, name) AS (&Address.*) FROM t",
+		err:   "cannot parse expression: column 7: invalid asterisk in columns: (*, name)",
+	}, {
+		query: "SELECT (name, p.*) AS (&Person.id, &Person.*) FROM t",
+		err:   "cannot parse expression: column 7: invalid asterisk in columns: (name, p.*)",
+	}, {
+		query: "SELECT (name, *) AS (&Person.id, &Person.*) FROM t",
+		err:   "cannot parse expression: column 7: invalid asterisk in columns: (name, *)",
+	}, {
+		query: "SELECT (*, t.*) AS (&Address.*) FROM t",
+		err:   "cannot parse expression: column 7: invalid asterisk in columns: (*, t.*)",
+	}, {
+		query: "SELECT (t.*, *) AS (&Address.*) FROM t",
+		err:   "cannot parse expression: column 7: invalid asterisk in columns: (t.*, *)",
+	}, {
 		query: "SELECT &S[:] FROM t",
 		err:   `cannot parse expression: column 8: cannot use slice syntax "S[:]" in output expression`,
 	}, {
@@ -538,21 +556,9 @@ func (s *ExprSuite) TestBindTypesErrors(c *C) {
 		typeSamples: []any{Address{}, Person{}},
 		err:         `cannot prepare statement: tag "id" of struct "Address" appears more than once in output expressions`,
 	}, {
-		query:       "SELECT (p.*, t.name) AS (&Address.*) FROM t",
-		typeSamples: []any{Address{}},
-		err:         "cannot prepare statement: output expression: invalid asterisk in columns: (p.*, t.name) AS (&Address.*)",
-	}, {
-		query:       "SELECT (name, p.*) AS (&Person.id, &Person.*) FROM t",
-		typeSamples: []any{Address{}, Person{}},
-		err:         "cannot prepare statement: output expression: invalid asterisk in columns: (name, p.*) AS (&Person.id, &Person.*)",
-	}, {
 		query:       "SELECT (&Person.*, &Person.*) FROM t",
 		typeSamples: []any{Address{}, Person{}},
 		err:         `cannot prepare statement: tag "address_id" of struct "Person" appears more than once in output expressions`,
-	}, {
-		query:       "SELECT (p.*, t.*) AS (&Address.*) FROM t",
-		typeSamples: []any{Address{}},
-		err:         "cannot prepare statement: output expression: invalid asterisk in columns: (p.*, t.*) AS (&Address.*)",
 	}, {
 		query:       "SELECT (id, name) AS (&Person.id, &Address.*) FROM t",
 		typeSamples: []any{Address{}, Person{}},
